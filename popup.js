@@ -91,6 +91,8 @@ async function loadSettings() {
     if (currentSettings.settings.darkMode) {
       document.body.classList.add('dark-mode');
       document.getElementById('themeToggle').textContent = '☀️';
+    } else {
+      document.getElementById('themeToggle').textContent = '🌙';
     }
   } catch (error) {
     showStatus('Error loading settings', 'error');
