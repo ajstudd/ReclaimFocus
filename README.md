@@ -57,7 +57,7 @@ Click the "Edit" button next to any blocked site or keyword to modify it.
 
 ### Activity Logs
 
-View all blocked attempts in the "Activity Logs" tab, including timestamps and statistics. Logs show both website blocks and keyword blocks (marked with 🔑).
+View all blocked attempts in the "Activity Logs" tab, including timestamps and statistics. Logs show both website blocks and keyword blocks.
 
 ### Configuration Management
 
