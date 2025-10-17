@@ -22,6 +22,7 @@
     <div class="tabs">
       <button class="tab-button active" data-tab="blocked-sites">Blocked Sites</button>
       <button class="tab-button" data-tab="blocked-keywords">Blocked Keywords</button>
+      <button class="tab-button" data-tab="time-limited">Time Limited</button>
       <button class="tab-button" data-tab="logs">Activity Logs</button>
       <button class="tab-button" data-tab="settings">Settings</button>
     </div>
@@ -81,6 +82,53 @@
       <div class="section">
         <h2>Current Blocked Keywords</h2>
         <div id="keywordList" class="blocked-list"></div>
+      </div>
+    </div>
+
+    <div id="time-limited" class="tab-content">
+      <div id="activeTimerCard" class="section" style="display: none; background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); color: white; border-radius: 8px; padding: 15px; margin-bottom: 15px;">
+        <div style="display: flex; justify-content: space-between; align-items: center;">
+          <div>
+            <div style="font-size: 12px; opacity: 0.9; margin-bottom: 4px;">Active Timer</div>
+            <div id="timerDomain" style="font-weight: 600; font-size: 14px; margin-bottom: 8px;">example.com</div>
+            <div id="timerDisplay" style="font-size: 28px; font-weight: 700; letter-spacing: 1px;">--:--</div>
+          </div>
+          <div id="timerStatus" style="font-size: 12px; opacity: 0.9; text-align: right;">
+            <div id="timerStatusText">Active</div>
+          </div>
+        </div>
+      </div>
+      
+      <div class="section">
+        <h2>Add Time-Limited Site</h2>
+        <form id="addTimeLimitForm">
+          <div class="form-group">
+            <label for="timeDomain">Domain (e.g., twitter.com):</label>
+            <input type="text" id="timeDomain" placeholder="example.com" required>
+          </div>
+          <div class="form-group">
+            <label for="timeLimit">Time Limit (minutes):</label>
+            <input type="number" id="timeLimit" placeholder="30" min="1" required>
+            <small>How long you can access this site before being redirected</small>
+          </div>
+          <div class="form-group">
+            <label for="cooldownPeriod">Cooldown Period (minutes):</label>
+            <input type="number" id="cooldownPeriod" placeholder="60" min="1" required>
+            <small>How long before you can access this site again</small>
+          </div>
+          <div class="form-group">
+            <label for="timeLimitRedirect">Redirect URL (optional):</label>
+            <input type="url" id="timeLimitRedirect" placeholder="about:newtab">
+            <small>Where to redirect after time expires (default: homepage)</small>
+          </div>
+          <button type="submit" class="btn btn-primary">Add Time Limit</button>
+          <button type="button" id="cancelTimeLimitEdit" class="btn btn-secondary" style="display: none;">Cancel</button>
+        </form>
+      </div>
+
+      <div class="section">
+        <h2>Current Time-Limited Sites</h2>
+        <div id="timeLimitedList" class="blocked-list"></div>
       </div>
     </div>
 
