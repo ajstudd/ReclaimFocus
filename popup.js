@@ -1,6 +1,7 @@
 let currentSettings = {
   blockedSites: [],
   blockedKeywords: [],
+  timeLimitedSites: [],
   keywordSettings: { globalRedirect: 'about:newtab' },
   logs: [],
   settings: { enabled: true, darkMode: false }
@@ -8,6 +9,7 @@ let currentSettings = {
 
 let editingIndex = null;
 let editingKeywordIndex = null;
+let editingTimeLimitIndex = null;
 
 async function restoreInputFields() {
   try {
@@ -31,6 +33,24 @@ async function restoreInputFields() {
       if (draftInputs.keywordRedirect) {
         keywordRedirectInput.value = draftInputs.keywordRedirect;
       }
+      
+      const timeDomainInput = document.getElementById('timeDomain');
+      const timeLimitInput = document.getElementById('timeLimit');
+      const cooldownPeriodInput = document.getElementById('cooldownPeriod');
+      const timeLimitRedirectInput = document.getElementById('timeLimitRedirect');
+      
+      if (draftInputs.timeDomain) {
+        timeDomainInput.value = draftInputs.timeDomain;
+      }
+      if (draftInputs.timeLimit) {
+        timeLimitInput.value = draftInputs.timeLimit;
+      }
+      if (draftInputs.cooldownPeriod) {
+        cooldownPeriodInput.value = draftInputs.cooldownPeriod;
+      }
+      if (draftInputs.timeLimitRedirect) {
+        timeLimitRedirectInput.value = draftInputs.timeLimitRedirect;
+      }
     }
   } catch (error) {
     console.error('Error restoring input fields:', error);
@@ -42,12 +62,20 @@ async function saveInputDrafts() {
   const redirectInput = document.getElementById('redirect');
   const keywordInput = document.getElementById('keyword');
   const keywordRedirectInput = document.getElementById('keywordRedirect');
+  const timeDomainInput = document.getElementById('timeDomain');
+  const timeLimitInput = document.getElementById('timeLimit');
+  const cooldownPeriodInput = document.getElementById('cooldownPeriod');
+  const timeLimitRedirectInput = document.getElementById('timeLimitRedirect');
   
   const drafts = {
     domain: domainInput.value,
     redirect: redirectInput.value,
     keyword: keywordInput.value,
-    keywordRedirect: keywordRedirectInput.value
+    keywordRedirect: keywordRedirectInput.value,
+    timeDomain: timeDomainInput.value,
+    timeLimit: timeLimitInput.value,
+    cooldownPeriod: cooldownPeriodInput.value,
+    timeLimitRedirect: timeLimitRedirectInput.value
   };
   
   await chrome.storage.local.set({ draftInputs: drafts });
@@ -57,10 +85,12 @@ document.addEventListener('DOMContentLoaded', async () => {
   await loadSettings();
   await loadBlockedSites();
   await loadBlockedKeywords();
+  await loadTimeLimitedSites();
   await loadLogs();
   await restoreInputFields();
   setupEventListeners();
   updateStats();
+  startTimerUpdates();
 });
 
 async function loadSettings() {
@@ -69,6 +99,7 @@ async function loadSettings() {
       'blockedSites', 
       'blockedKeywords',
       'keywordSettings',
+      'timeLimitedSites',
       'logs', 
       'settings', 
       'draftInputs'
@@ -77,6 +108,7 @@ async function loadSettings() {
       blockedSites: data.blockedSites || [],
       blockedKeywords: data.blockedKeywords || [],
       keywordSettings: data.keywordSettings || { globalRedirect: 'about:newtab' },
+      timeLimitedSites: data.timeLimitedSites || [],
       logs: data.logs || [],
       settings: data.settings || { enabled: true, darkMode: false }
     };
@@ -192,6 +224,12 @@ async function loadLogs() {
         <div class="log-domain">Keyword: "${log.keyword}"</div>
         <div class="log-url">${log.url}</div>
       `;
+    } else if (log.type === 'timelimit') {
+      const timeInMinutes = Math.floor(log.timeUsed / 60);
+      displayContent = `
+        <div class="log-domain">Time Limit Exceeded: ${log.domain}</div>
+        <div class="log-url">Time used: ${timeInMinutes} minutes</div>
+      `;
     } else {
       const domain = new URL(log.url).hostname;
       displayContent = `
@@ -253,6 +291,15 @@ function setupEventListeners() {
     cancelKeywordEdit();
   });
   
+  document.getElementById('addTimeLimitForm').addEventListener('submit', async (e) => {
+    e.preventDefault();
+    await addTimeLimitSite();
+  });
+  
+  document.getElementById('cancelTimeLimitEdit').addEventListener('click', () => {
+    cancelTimeLimitEdit();
+  });
+  
   document.getElementById('enableToggle').addEventListener('change', async (e) => {
     currentSettings.settings.enabled = e.target.checked;
     await chrome.storage.local.set({ settings: currentSettings.settings });
@@ -270,11 +317,19 @@ function setupEventListeners() {
   const redirectInput = document.getElementById('redirect');
   const keywordInput = document.getElementById('keyword');
   const keywordRedirectInput = document.getElementById('keywordRedirect');
+  const timeDomainInput = document.getElementById('timeDomain');
+  const timeLimitInput = document.getElementById('timeLimit');
+  const cooldownPeriodInput = document.getElementById('cooldownPeriod');
+  const timeLimitRedirectInput = document.getElementById('timeLimitRedirect');
   
   domainInput.addEventListener('input', saveInputDrafts);
   redirectInput.addEventListener('input', saveInputDrafts);
   keywordInput.addEventListener('input', saveInputDrafts);
   keywordRedirectInput.addEventListener('input', saveInputDrafts);
+  timeDomainInput.addEventListener('input', saveInputDrafts);
+  timeLimitInput.addEventListener('input', saveInputDrafts);
+  cooldownPeriodInput.addEventListener('input', saveInputDrafts);
+  timeLimitRedirectInput.addEventListener('input', saveInputDrafts);
   
   // Clear logs
   document.getElementById('clearLogs').addEventListener('click', async () => {
@@ -553,6 +608,164 @@ async function updateGlobalRedirect() {
   showStatus('Global redirect updated successfully', 'success');
 }
 
+async function loadTimeLimitedSites() {
+  const container = document.getElementById('timeLimitedList');
+  
+  if (currentSettings.timeLimitedSites.length === 0) {
+    container.innerHTML = '<div class="empty-state">No time-limited sites configured</div>';
+    return;
+  }
+  
+  container.innerHTML = currentSettings.timeLimitedSites.map((site, index) => {
+    const redirectText = site.redirect ? site.redirect : 'about:newtab';
+    return `
+      <div class="blocked-item">
+        <div class="blocked-info">
+          <div class="blocked-domain">${site.domain}</div>
+          <div class="blocked-redirect">Time: ${site.timeLimit} min | Cooldown: ${site.cooldown} min | Redirect: ${redirectText}</div>
+        </div>
+        <div class="blocked-actions">
+          <button class="btn btn-secondary btn-small edit-time-btn" data-index="${index}">Edit</button>
+          <button class="btn btn-danger btn-small remove-time-btn" data-index="${index}">Remove</button>
+        </div>
+      </div>
+    `;
+  }).join('');
+  
+  container.querySelectorAll('.edit-time-btn').forEach(button => {
+    button.addEventListener('click', () => {
+      const index = parseInt(button.dataset.index);
+      editTimeLimitSite(index);
+    });
+  });
+  
+  container.querySelectorAll('.remove-time-btn').forEach(button => {
+    button.addEventListener('click', () => {
+      const index = parseInt(button.dataset.index);
+      removeTimeLimitSite(index);
+    });
+  });
+}
+
+async function addTimeLimitSite() {
+  const timeDomainInput = document.getElementById('timeDomain');
+  const timeLimitInput = document.getElementById('timeLimit');
+  const cooldownPeriodInput = document.getElementById('cooldownPeriod');
+  const timeLimitRedirectInput = document.getElementById('timeLimitRedirect');
+  
+  const domain = timeDomainInput.value.trim().toLowerCase().replace(/^https?:\/\//, '').replace(/\/$/, '');
+  const timeLimit = parseInt(timeLimitInput.value);
+  const cooldown = parseInt(cooldownPeriodInput.value);
+  const redirect = timeLimitRedirectInput.value.trim();
+  
+  if (!domain) {
+    showStatus('Please enter a domain', 'error');
+    return;
+  }
+  
+  if (!timeLimit || timeLimit < 1) {
+    showStatus('Please enter a valid time limit (minimum 1 minute)', 'error');
+    return;
+  }
+  
+  if (!cooldown || cooldown < 1) {
+    showStatus('Please enter a valid cooldown period (minimum 1 minute)', 'error');
+    return;
+  }
+  
+  if (editingTimeLimitIndex !== null) {
+    const existingIndex = currentSettings.timeLimitedSites.findIndex((item, idx) => 
+      item.domain === domain && idx !== editingTimeLimitIndex
+    );
+    
+    if (existingIndex !== -1) {
+      showStatus('This domain is already configured with time limits', 'error');
+      return;
+    }
+    
+    currentSettings.timeLimitedSites[editingTimeLimitIndex] = { domain, timeLimit, cooldown, redirect };
+    showStatus('Time-limited site updated successfully', 'success');
+    cancelTimeLimitEdit();
+  } else {
+    const existingIndex = currentSettings.timeLimitedSites.findIndex(
+      item => item.domain === domain
+    );
+    
+    if (existingIndex !== -1) {
+      showStatus('This domain is already configured with time limits', 'error');
+      return;
+    }
+    
+    currentSettings.timeLimitedSites.push({ domain, timeLimit, cooldown, redirect });
+    showStatus('Time-limited site added successfully', 'success');
+  }
+  
+  await chrome.storage.local.set({ timeLimitedSites: currentSettings.timeLimitedSites });
+  
+  await loadTimeLimitedSites();
+  
+  timeDomainInput.value = '';
+  timeLimitInput.value = '';
+  cooldownPeriodInput.value = '';
+  timeLimitRedirectInput.value = '';
+  
+  chrome.storage.local.set({ draftInputs: { timeDomain: '', timeLimit: '', cooldownPeriod: '', timeLimitRedirect: '' } });
+}
+
+function editTimeLimitSite(index) {
+  const site = currentSettings.timeLimitedSites[index];
+  
+  document.getElementById('timeDomain').value = site.domain;
+  document.getElementById('timeLimit').value = site.timeLimit;
+  document.getElementById('cooldownPeriod').value = site.cooldown;
+  document.getElementById('timeLimitRedirect').value = site.redirect || '';
+  
+  editingTimeLimitIndex = index;
+  
+  const submitBtn = document.querySelector('#addTimeLimitForm button[type="submit"]');
+  submitBtn.textContent = 'Update Site';
+  submitBtn.classList.remove('btn-primary');
+  submitBtn.classList.add('btn-warning');
+  
+  const cancelBtn = document.getElementById('cancelTimeLimitEdit');
+  cancelBtn.style.display = 'inline-block';
+  
+  document.getElementById('timeDomain').scrollIntoView({ behavior: 'smooth', block: 'center' });
+}
+
+function cancelTimeLimitEdit() {
+  editingTimeLimitIndex = null;
+  
+  const timeDomainInput = document.getElementById('timeDomain');
+  const timeLimitInput = document.getElementById('timeLimit');
+  const cooldownPeriodInput = document.getElementById('cooldownPeriod');
+  const timeLimitRedirectInput = document.getElementById('timeLimitRedirect');
+  
+  timeDomainInput.value = '';
+  timeLimitInput.value = '';
+  cooldownPeriodInput.value = '';
+  timeLimitRedirectInput.value = '';
+  
+  const submitBtn = document.querySelector('#addTimeLimitForm button[type="submit"]');
+  submitBtn.textContent = 'Add Site';
+  submitBtn.classList.remove('btn-warning');
+  submitBtn.classList.add('btn-primary');
+  
+  const cancelBtn = document.getElementById('cancelTimeLimitEdit');
+  cancelBtn.style.display = 'none';
+  
+  chrome.storage.local.set({ draftInputs: { timeDomain: '', timeLimit: '', cooldownPeriod: '', timeLimitRedirect: '' } });
+}
+
+async function removeTimeLimitSite(index) {
+  currentSettings.timeLimitedSites.splice(index, 1);
+  await chrome.storage.local.set({ timeLimitedSites: currentSettings.timeLimitedSites });
+  
+  await loadTimeLimitedSites();
+  
+  showStatus('Time-limited site removed successfully', 'success');
+}
+
 // Clear all logs
 async function clearLogs() {
   currentSettings.logs = [];
@@ -581,6 +794,7 @@ function exportSettings() {
     blockedSites: currentSettings.blockedSites,
     blockedKeywords: currentSettings.blockedKeywords,
     keywordSettings: currentSettings.keywordSettings,
+    timeLimitedSites: currentSettings.timeLimitedSites,
     settings: currentSettings.settings,
     exportDate: new Date().toISOString()
   };
@@ -615,6 +829,12 @@ async function importSettings(event) {
       await chrome.storage.local.set({ keywordSettings: data.keywordSettings });
     }
     
+    if (data.timeLimitedSites) {
+      currentSettings.timeLimitedSites = data.timeLimitedSites;
+      await chrome.storage.local.set({ timeLimitedSites: data.timeLimitedSites });
+      await loadTimeLimitedSites();
+    }
+    
     if (data.settings) {
       currentSettings.settings = { ...currentSettings.settings, ...data.settings };
       await chrome.storage.local.set({ settings: currentSettings.settings });
@@ -640,18 +860,21 @@ async function resetToDefaults() {
   currentSettings.blockedSites = defaultSites;
   currentSettings.blockedKeywords = [];
   currentSettings.keywordSettings = { globalRedirect: 'about:newtab' };
+  currentSettings.timeLimitedSites = [];
   currentSettings.settings = { enabled: true, darkMode: false };
   
   await chrome.storage.local.set({
     blockedSites: defaultSites,
     blockedKeywords: [],
     keywordSettings: { globalRedirect: 'about:newtab' },
+    timeLimitedSites: [],
     settings: currentSettings.settings
   });
   
   await loadSettings();
   await loadBlockedSites();
   await loadBlockedKeywords();
+  await loadTimeLimitedSites();
   
   chrome.runtime.sendMessage({ action: 'updateRules' });
   
@@ -690,5 +913,59 @@ chrome.storage.onChanged.addListener(async (changes, namespace) => {
       await loadLogs();
       updateStats();
     }
+  }
+});
+
+let timerUpdateInterval = null;
+
+function startTimerUpdates() {
+  updateTimerDisplay();
+  timerUpdateInterval = setInterval(updateTimerDisplay, 1000);
+}
+
+async function updateTimerDisplay() {
+  try {
+    const response = await chrome.runtime.sendMessage({ action: 'getTimerStatus' });
+    
+    const timerCard = document.getElementById('activeTimerCard');
+    const timerDisplay = document.getElementById('timerDisplay');
+    const timerDomain = document.getElementById('timerDomain');
+    const timerStatusText = document.getElementById('timerStatusText');
+    
+    if (response.timerData) {
+      const { domain, minutesRemaining, secondsRemaining, isPaused } = response.timerData;
+      
+      timerCard.style.display = 'block';
+      timerDomain.textContent = domain;
+      
+      const formattedTime = `${String(minutesRemaining).padStart(2, '0')}:${String(secondsRemaining).padStart(2, '0')}`;
+      timerDisplay.textContent = formattedTime;
+      
+      if (isPaused) {
+        timerCard.style.background = 'linear-gradient(135deg, #ffa726 0%, #fb8c00 100%)';
+        timerStatusText.textContent = 'Paused';
+      } else {
+        if (minutesRemaining === 0 && secondsRemaining <= 30) {
+          timerCard.style.background = 'linear-gradient(135deg, #ef5350 0%, #e53935 100%)';
+          timerStatusText.textContent = 'Critical';
+        } else if (minutesRemaining < 2) {
+          timerCard.style.background = 'linear-gradient(135deg, #ff7043 0%, #f4511e 100%)';
+          timerStatusText.textContent = 'Low Time';
+        } else {
+          timerCard.style.background = 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)';
+          timerStatusText.textContent = 'Active';
+        }
+      }
+    } else {
+      timerCard.style.display = 'none';
+    }
+  } catch (error) {
+    console.error('Error updating timer display:', error);
+  }
+}
+
+window.addEventListener('beforeunload', () => {
+  if (timerUpdateInterval) {
+    clearInterval(timerUpdateInterval);
   }
 });

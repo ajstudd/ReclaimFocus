@@ -6,6 +6,10 @@ const DEFAULT_BLOCKED_SITES = [
 ];
 
 const DEFAULT_BLOCKED_KEYWORDS = [];
+const DEFAULT_TIME_LIMITED_SITES = [];
+
+const activeTimers = new Map();
+const cooldownTimers = new Map();
 
 chrome.runtime.onInstalled.addListener(async () => {
   console.log('ReclaimFocus installed');
@@ -16,6 +20,7 @@ chrome.runtime.onInstalled.addListener(async () => {
     await chrome.storage.local.set({
       blockedSites: DEFAULT_BLOCKED_SITES,
       blockedKeywords: DEFAULT_BLOCKED_KEYWORDS,
+      timeLimitedSites: DEFAULT_TIME_LIMITED_SITES,
       keywordSettings: {
         globalRedirect: 'about:newtab'
       },
@@ -28,6 +33,7 @@ chrome.runtime.onInstalled.addListener(async () => {
   } else if (!blockedKeywords) {
     await chrome.storage.local.set({
       blockedKeywords: DEFAULT_BLOCKED_KEYWORDS,
+      timeLimitedSites: DEFAULT_TIME_LIMITED_SITES,
       keywordSettings: {
         globalRedirect: 'about:newtab'
       }
@@ -52,14 +58,40 @@ chrome.webNavigation.onBeforeNavigate.addListener(async (details) => {
 // Check if URL is blocked and redirect if necessary
 async function checkAndRedirect(tabId, url) {
   try {
-    const { blockedSites, blockedKeywords, keywordSettings, settings } = await chrome.storage.local.get([
+    const { blockedSites, blockedKeywords, keywordSettings, timeLimitedSites, settings } = await chrome.storage.local.get([
       'blockedSites', 
       'blockedKeywords', 
-      'keywordSettings', 
+      'keywordSettings',
+      'timeLimitedSites',
       'settings'
     ]);
     
     if (!settings?.enabled) return;
+    
+    // Check time-limited sites first
+    if (timeLimitedSites && timeLimitedSites.length > 0) {
+      const urlObj = new URL(url);
+      const hostname = urlObj.hostname.replace(/^www\./, '');
+      
+      const timeLimitedSite = timeLimitedSites.find(site => {
+        const siteDomain = site.domain.replace(/^www\./, '');
+        return hostname === siteDomain || hostname.endsWith('.' + siteDomain);
+      });
+      
+      if (timeLimitedSite) {
+        const cooldownKey = `cooldown_${hostname}`;
+        const cooldownData = cooldownTimers.get(cooldownKey);
+        
+        if (cooldownData && Date.now() < cooldownData.expiresAt) {
+          const redirectUrl = timeLimitedSite.redirect || 'about:newtab';
+          chrome.tabs.update(tabId, { url: redirectUrl });
+          return;
+        }
+        
+        startTimer(tabId, hostname, timeLimitedSite);
+        return;
+      }
+    }
     
     if (blockedKeywords && blockedKeywords.length > 0) {
       const keywordMatch = checkKeywordInUrl(url, blockedKeywords, keywordSettings);
@@ -240,8 +272,173 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
     sendResponse({ success: true });
     return true;
   }
+  
+  if (message.action === 'getTimerStatus') {
+    chrome.tabs.query({ active: true, currentWindow: true }, (tabs) => {
+      if (tabs[0]) {
+        const timerData = activeTimers.get(tabs[0].id);
+        if (timerData) {
+          const timeRemaining = Math.max(0, timerData.timeLimit - timerData.elapsedTime);
+          const minutesRemaining = Math.floor(timeRemaining / 60000);
+          const secondsRemaining = Math.floor((timeRemaining % 60000) / 1000);
+          
+          sendResponse({ 
+            timerData: {
+              domain: timerData.domain,
+              timeRemaining: timeRemaining,
+              minutesRemaining: minutesRemaining,
+              secondsRemaining: secondsRemaining,
+              isPaused: timerData.isPaused,
+              tabId: tabs[0].id
+            }
+          });
+        } else {
+          sendResponse({ timerData: null });
+        }
+      } else {
+        sendResponse({ timerData: null });
+      }
+    });
+    return true;
+  }
 });
 
 chrome.storage.local.get('logs').then(({ logs = [] }) => {
   updateBadge(logs.length);
 });
+
+chrome.tabs.onActivated.addListener(async (activeInfo) => {
+  await handleTabActivation(activeInfo.tabId);
+});
+
+chrome.tabs.onRemoved.addListener((tabId) => {
+  cleanupTimer(tabId);
+});
+
+async function handleTabActivation(tabId) {
+  try {
+    const tab = await chrome.tabs.get(tabId);
+    if (!tab.url) return;
+    
+    const { timeLimitedSites, settings } = await chrome.storage.local.get(['timeLimitedSites', 'settings']);
+    if (!settings?.enabled || !timeLimitedSites || timeLimitedSites.length === 0) return;
+    
+    const urlObj = new URL(tab.url);
+    const hostname = urlObj.hostname.replace(/^www\./, '');
+    
+    const timeLimitedSite = timeLimitedSites.find(site => {
+      const siteDomain = site.domain.replace(/^www\./, '');
+      return hostname === siteDomain || hostname.endsWith('.' + siteDomain);
+    });
+    
+    if (timeLimitedSite) {
+      const cooldownKey = `cooldown_${hostname}`;
+      const cooldownData = cooldownTimers.get(cooldownKey);
+      
+      if (cooldownData && Date.now() < cooldownData.expiresAt) {
+        const redirectUrl = timeLimitedSite.redirect || 'about:newtab';
+        chrome.tabs.update(tabId, { url: redirectUrl });
+        return;
+      }
+      
+      startTimer(tabId, hostname, timeLimitedSite);
+    }
+  } catch (error) {
+    console.error('Error handling tab activation:', error);
+  }
+}
+
+function startTimer(tabId, domain, siteConfig) {
+  if (activeTimers.has(tabId)) {
+    const existing = activeTimers.get(tabId);
+    if (existing.domain === domain) {
+      existing.isPaused = false;
+      existing.lastActiveTime = Date.now();
+      checkTimer(tabId);
+      return;
+    }
+  }
+  
+  const timerData = {
+    domain: domain,
+    timeLimit: siteConfig.timeLimit * 60 * 1000,
+    cooldown: siteConfig.cooldown * 60 * 1000,
+    redirect: siteConfig.redirect || 'about:newtab',
+    startTime: Date.now(),
+    lastActiveTime: Date.now(),
+    elapsedTime: 0,
+    isPaused: false
+  };
+  
+  activeTimers.set(tabId, timerData);
+  checkTimer(tabId);
+}
+
+async function checkTimer(tabId) {
+  const timerData = activeTimers.get(tabId);
+  if (!timerData || timerData.isPaused) return;
+  
+  try {
+    const tab = await chrome.tabs.get(tabId);
+    if (!tab.active) {
+      timerData.isPaused = true;
+      return;
+    }
+    
+    const now = Date.now();
+    const deltaTime = now - timerData.lastActiveTime;
+    timerData.elapsedTime += deltaTime;
+    timerData.lastActiveTime = now;
+    
+    if (timerData.elapsedTime >= timerData.timeLimit) {
+      await handleTimeExpired(tabId, timerData);
+      return;
+    }
+    
+    setTimeout(() => checkTimer(tabId), 1000);
+  } catch (error) {
+    cleanupTimer(tabId);
+  }
+}
+
+async function handleTimeExpired(tabId, timerData) {
+  try {
+    const cooldownKey = `cooldown_${timerData.domain}`;
+    cooldownTimers.set(cooldownKey, {
+      expiresAt: Date.now() + timerData.cooldown,
+      domain: timerData.domain
+    });
+    
+    setTimeout(() => {
+      cooldownTimers.delete(cooldownKey);
+    }, timerData.cooldown);
+    
+    await chrome.tabs.update(tabId, { url: timerData.redirect });
+    
+    const { logs = [] } = await chrome.storage.local.get('logs');
+    const newLog = {
+      url: `https://${timerData.domain}`,
+      type: 'timelimit',
+      domain: timerData.domain,
+      timeUsed: Math.floor(timerData.elapsedTime / 1000),
+      timestamp: new Date().toISOString(),
+      id: Date.now()
+    };
+    
+    logs.unshift(newLog);
+    if (logs.length > 1000) {
+      logs.splice(1000);
+    }
+    
+    await chrome.storage.local.set({ logs });
+    await updateBadge(logs.length);
+    
+    cleanupTimer(tabId);
+  } catch (error) {
+    console.error('Error handling time expired:', error);
+  }
+}
+
+function cleanupTimer(tabId) {
+  activeTimers.delete(tabId);
+}

@@ -6,9 +6,10 @@ A Chrome extension that blocks distracting websites and search keywords, redirec
 
 - Block distracting websites with custom redirect URLs
 - **Block search keywords** across all search engines
+- **Time-limited website access** with pause/resume and cooldown periods
 - Global redirect for keywords without specific redirects
 - Pre-configured blocks for common time-wasters
-- Activity logging to track blocked attempts (websites and keywords)
+- Activity logging to track blocked attempts (websites, keywords, and time limits)
 - Statistics on most-blocked sites
 - Export/Import configuration
 - Dark mode support
@@ -51,13 +52,48 @@ Set a default redirect URL for all keywords without specific redirects:
 - Default: `about:newtab` (homepage)
 - Can be any URL: `https://www.khanacademy.org`, etc.
 
+### Time-Limited Website Access
+
+Control how long you can access specific websites:
+
+1. Go to the "Time Limited" tab
+2. Enter a domain (e.g., `twitter.com`)
+3. Set time limit in minutes (how long you can use the site)
+4. Set cooldown period in minutes (how long before you can access again)
+5. Optionally set a redirect URL
+6. Click "Add Site"
+
+**Key Features**:
+
+- **Compact timer display** shown in extension popup (Time Limited tab)
+- Timer updates every second with MM:SS countdown
+- Timer changes color as time runs out (purple → orange → red)
+- Timer pauses when you switch tabs or minimize browser
+- Timer resumes when you return to the tab
+- After time expires, site enters cooldown period
+- During cooldown, all access attempts are blocked
+- Perfect for limiting social media or entertainment sites
+
+**Timer Visual States** (in extension popup):
+
+- 🟣 **Purple**: Normal countdown (> 2 minutes left) - Active
+- 🟠 **Orange**: Warning (< 2 minutes left) - Low Time
+- 🔴 **Red**: Critical (< 30 seconds left) - Critical
+- 🟠 **Orange**: Paused (tab inactive) - Paused
+
+**How to View Timer**: Click extension icon → Go to "Time Limited" tab → Timer appears at top when active
+
 ### Editing Blocks
 
 Click the "Edit" button next to any blocked site or keyword to modify it.
 
 ### Activity Logs
 
-View all blocked attempts in the "Activity Logs" tab, including timestamps and statistics. Logs show both website blocks and keyword blocks.
+View all blocked attempts in the "Activity Logs" tab, including timestamps and statistics. Logs show:
+
+- Website blocks
+- Keyword blocks
+- Time limit exceeded events (with time used)
 
 ### Configuration Management
 
