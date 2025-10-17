@@ -1,12 +1,14 @@
 let currentSettings = {
   blockedSites: [],
+  blockedKeywords: [],
+  keywordSettings: { globalRedirect: 'about:newtab' },
   logs: [],
   settings: { enabled: true, darkMode: false }
 };
 
 let editingIndex = null;
+let editingKeywordIndex = null;
 
-// Restore input field drafts from storage
 async function restoreInputFields() {
   try {
     const { draftInputs } = await chrome.storage.local.get('draftInputs');
@@ -14,6 +16,8 @@ async function restoreInputFields() {
     if (draftInputs) {
       const domainInput = document.getElementById('domain');
       const redirectInput = document.getElementById('redirect');
+      const keywordInput = document.getElementById('keyword');
+      const keywordRedirectInput = document.getElementById('keywordRedirect');
       
       if (draftInputs.domain) {
         domainInput.value = draftInputs.domain;
@@ -21,20 +25,29 @@ async function restoreInputFields() {
       if (draftInputs.redirect) {
         redirectInput.value = draftInputs.redirect;
       }
+      if (draftInputs.keyword) {
+        keywordInput.value = draftInputs.keyword;
+      }
+      if (draftInputs.keywordRedirect) {
+        keywordRedirectInput.value = draftInputs.keywordRedirect;
+      }
     }
   } catch (error) {
     console.error('Error restoring input fields:', error);
   }
 }
 
-// Save input field drafts to storage
 async function saveInputDrafts() {
   const domainInput = document.getElementById('domain');
   const redirectInput = document.getElementById('redirect');
+  const keywordInput = document.getElementById('keyword');
+  const keywordRedirectInput = document.getElementById('keywordRedirect');
   
   const drafts = {
     domain: domainInput.value,
-    redirect: redirectInput.value
+    redirect: redirectInput.value,
+    keyword: keywordInput.value,
+    keywordRedirect: keywordRedirectInput.value
   };
   
   await chrome.storage.local.set({ draftInputs: drafts });
@@ -43,23 +56,37 @@ async function saveInputDrafts() {
 document.addEventListener('DOMContentLoaded', async () => {
   await loadSettings();
   await loadBlockedSites();
+  await loadBlockedKeywords();
   await loadLogs();
   await restoreInputFields();
   setupEventListeners();
   updateStats();
 });
 
-// Load settings from storage
 async function loadSettings() {
   try {
-    const data = await chrome.storage.local.get(['blockedSites', 'logs', 'settings', 'draftInputs']);
+    const data = await chrome.storage.local.get([
+      'blockedSites', 
+      'blockedKeywords',
+      'keywordSettings',
+      'logs', 
+      'settings', 
+      'draftInputs'
+    ]);
     currentSettings = {
       blockedSites: data.blockedSites || [],
+      blockedKeywords: data.blockedKeywords || [],
+      keywordSettings: data.keywordSettings || { globalRedirect: 'about:newtab' },
       logs: data.logs || [],
       settings: data.settings || { enabled: true, darkMode: false }
     };
     
     document.getElementById('enableToggle').checked = currentSettings.settings.enabled;
+    
+    const globalRedirectInput = document.getElementById('globalRedirect');
+    if (globalRedirectInput) {
+      globalRedirectInput.value = currentSettings.keywordSettings.globalRedirect || 'about:newtab';
+    }
     
     if (currentSettings.settings.darkMode) {
       document.body.classList.add('dark-mode');
@@ -70,7 +97,6 @@ async function loadSettings() {
   }
 }
 
-// Display blocked sites
 async function loadBlockedSites() {
   const container = document.getElementById('blockedList');
   
@@ -82,8 +108,8 @@ async function loadBlockedSites() {
   container.innerHTML = currentSettings.blockedSites.map((site, index) => `
     <div class="blocked-item">
       <div class="blocked-info">
-        <div class="blocked-domain">🚫 ${site.domain}</div>
-        <div class="blocked-redirect">→ ${site.redirect}</div>
+        <div class="blocked-domain">${site.domain}</div>
+        <div class="blocked-redirect">${site.redirect}</div>
       </div>
       <div class="blocked-actions">
         <button class="btn btn-secondary btn-small edit-btn" data-index="${index}">Edit</button>
@@ -107,7 +133,45 @@ async function loadBlockedSites() {
   });
 }
 
-// Display activity logs
+async function loadBlockedKeywords() {
+  const container = document.getElementById('keywordList');
+  
+  if (currentSettings.blockedKeywords.length === 0) {
+    container.innerHTML = '<p class="empty-state">No blocked keywords yet. Add one above!</p>';
+    return;
+  }
+  
+  container.innerHTML = currentSettings.blockedKeywords.map((item, index) => {
+    const redirectText = item.redirect || `<em>Uses global redirect</em>`;
+    return `
+      <div class="blocked-item">
+        <div class="blocked-info">
+          <div class="blocked-domain">${item.keyword}</div>
+          <div class="blocked-redirect">${redirectText}</div>
+        </div>
+        <div class="blocked-actions">
+          <button class="btn btn-secondary btn-small edit-keyword-btn" data-index="${index}">Edit</button>
+          <button class="btn btn-danger btn-small remove-keyword-btn" data-index="${index}">Remove</button>
+        </div>
+      </div>
+    `;
+  }).join('');
+  
+  container.querySelectorAll('.edit-keyword-btn').forEach(button => {
+    button.addEventListener('click', () => {
+      const index = parseInt(button.dataset.index);
+      editKeyword(index);
+    });
+  });
+  
+  container.querySelectorAll('.remove-keyword-btn').forEach(button => {
+    button.addEventListener('click', () => {
+      const index = parseInt(button.dataset.index);
+      removeKeyword(index);
+    });
+  });
+}
+
 async function loadLogs() {
   const container = document.getElementById('logsList');
   
@@ -119,19 +183,30 @@ async function loadLogs() {
   container.innerHTML = currentSettings.logs.slice(0, 50).map(log => {
     const date = new Date(log.timestamp);
     const formattedDate = date.toLocaleString();
-    const domain = new URL(log.url).hostname;
+    
+    let displayContent;
+    if (log.type === 'keyword') {
+      displayContent = `
+        <div class="log-domain">Keyword: "${log.keyword}"</div>
+        <div class="log-url">${log.url}</div>
+      `;
+    } else {
+      const domain = new URL(log.url).hostname;
+      displayContent = `
+        <div class="log-domain">${domain}</div>
+        <div class="log-url">${log.url}</div>
+      `;
+    }
     
     return `
       <div class="log-item">
-        <div class="log-domain">${domain}</div>
-        <div class="log-url">${log.url}</div>
+        ${displayContent}
         <div class="log-time">${formattedDate}</div>
       </div>
     `;
   }).join('');
 }
 
-// Calculate and display statistics
 function updateStats() {
   const totalAttempts = currentSettings.logs.length;
   document.getElementById('totalAttempts').textContent = totalAttempts;
@@ -147,7 +222,6 @@ function updateStats() {
   document.getElementById('todayAttempts').textContent = todayAttempts;
 }
 
-// Setup event listeners
 function setupEventListeners() {
   document.querySelectorAll('.tab-button').forEach(button => {
     button.addEventListener('click', () => {
@@ -162,14 +236,27 @@ function setupEventListeners() {
     await addSite();
   });
   
-  // Enable/disable toggle
+  // Add keyword form
+  document.getElementById('addKeywordForm').addEventListener('submit', async (e) => {
+    e.preventDefault();
+    await addKeyword();
+  });
+  
+  document.getElementById('globalRedirectForm').addEventListener('submit', async (e) => {
+    e.preventDefault();
+    await updateGlobalRedirect();
+  });
+  
+  document.getElementById('cancelKeywordEdit').addEventListener('click', () => {
+    cancelKeywordEdit();
+  });
+  
   document.getElementById('enableToggle').addEventListener('change', async (e) => {
     currentSettings.settings.enabled = e.target.checked;
     await chrome.storage.local.set({ settings: currentSettings.settings });
     showStatus(e.target.checked ? 'Extension enabled' : 'Extension disabled', 'success');
   });
   
-  // Theme toggle
   document.getElementById('themeToggle').addEventListener('click', async () => {
     currentSettings.settings.darkMode = !currentSettings.settings.darkMode;
     document.body.classList.toggle('dark-mode');
@@ -177,12 +264,15 @@ function setupEventListeners() {
     await chrome.storage.local.set({ settings: currentSettings.settings });
   });
   
-  // Save input fields as user types (draft persistence)
   const domainInput = document.getElementById('domain');
   const redirectInput = document.getElementById('redirect');
+  const keywordInput = document.getElementById('keyword');
+  const keywordRedirectInput = document.getElementById('keywordRedirect');
   
   domainInput.addEventListener('input', saveInputDrafts);
   redirectInput.addEventListener('input', saveInputDrafts);
+  keywordInput.addEventListener('input', saveInputDrafts);
+  keywordRedirectInput.addEventListener('input', saveInputDrafts);
   
   // Clear logs
   document.getElementById('clearLogs').addEventListener('click', async () => {
@@ -197,14 +287,12 @@ function setupEventListeners() {
   // Export settings
   document.getElementById('exportSettings').addEventListener('click', exportSettings);
   
-  // Import settings
   document.getElementById('importSettings').addEventListener('click', () => {
     document.getElementById('importFile').click();
   });
   
   document.getElementById('importFile').addEventListener('change', importSettings);
   
-  // Reset settings
   document.getElementById('resetSettings').addEventListener('click', async () => {
     if (confirm('Are you sure you want to reset to default settings?')) {
       await resetToDefaults();
@@ -212,7 +300,6 @@ function setupEventListeners() {
   });
 }
 
-// Switch between tabs
 function switchTab(tabName) {
   document.querySelectorAll('.tab-button').forEach(btn => btn.classList.remove('active'));
   document.querySelectorAll('.tab-content').forEach(content => content.classList.remove('active'));
@@ -221,7 +308,6 @@ function switchTab(tabName) {
   document.getElementById(tabName).classList.add('active');
 }
 
-// Add a new blocked site or update existing one
 async function addSite() {
   const domainInput = document.getElementById('domain');
   const redirectInput = document.getElementById('redirect');
@@ -312,7 +398,6 @@ function editSite(index) {
   domainInput.scrollIntoView({ behavior: 'smooth', block: 'center' });
 }
 
-// Cancel editing mode
 function cancelEdit() {
   editingIndex = null;
   
@@ -338,7 +423,6 @@ function cancelEdit() {
   chrome.storage.local.set({ draftInputs: { domain: '', redirect: '' } });
 }
 
-// Remove a blocked site
 async function removeSite(index) {
   currentSettings.blockedSites.splice(index, 1);
   await chrome.storage.local.set({ blockedSites: currentSettings.blockedSites });
@@ -348,6 +432,123 @@ async function removeSite(index) {
   chrome.runtime.sendMessage({ action: 'updateRules' });
   
   showStatus('Site removed successfully', 'success');
+}
+
+async function addKeyword() {
+  const keywordInput = document.getElementById('keyword');
+  const keywordRedirectInput = document.getElementById('keywordRedirect');
+  
+  const keyword = keywordInput.value.trim();
+  const redirect = keywordRedirectInput.value.trim();
+  
+  if (!keyword) {
+    showStatus('Please enter a keyword', 'error');
+    return;
+  }
+  
+  if (editingKeywordIndex !== null) {
+    const existingIndex = currentSettings.blockedKeywords.findIndex((item, idx) => 
+      item.keyword.toLowerCase() === keyword.toLowerCase() && idx !== editingKeywordIndex
+    );
+    
+    if (existingIndex !== -1) {
+      showStatus('This keyword is already blocked', 'error');
+      return;
+    }
+    
+    currentSettings.blockedKeywords[editingKeywordIndex] = { keyword, redirect };
+    showStatus('Keyword updated successfully', 'success');
+    cancelKeywordEdit();
+  } else {
+    const existingIndex = currentSettings.blockedKeywords.findIndex(
+      item => item.keyword.toLowerCase() === keyword.toLowerCase()
+    );
+    
+    if (existingIndex !== -1) {
+      showStatus('This keyword is already blocked', 'error');
+      return;
+    }
+    
+    currentSettings.blockedKeywords.push({ keyword, redirect });
+    showStatus('Keyword added successfully', 'success');
+    
+    keywordInput.value = '';
+    keywordRedirectInput.value = '';
+  }
+  
+  await chrome.storage.local.set({ 
+    blockedKeywords: currentSettings.blockedKeywords,
+    draftInputs: { keyword: '', keywordRedirect: '' }
+  });
+  
+  await loadBlockedKeywords();
+}
+
+function editKeyword(index) {
+  const item = currentSettings.blockedKeywords[index];
+  
+  const keywordInput = document.getElementById('keyword');
+  const keywordRedirectInput = document.getElementById('keywordRedirect');
+  const submitBtn = document.querySelector('#addKeywordForm button[type="submit"]');
+  const formTitle = document.querySelector('#blocked-keywords .section h2');
+  const cancelBtn = document.getElementById('cancelKeywordEdit');
+  
+  keywordInput.value = item.keyword;
+  keywordRedirectInput.value = item.redirect || '';
+  
+  editingKeywordIndex = index;
+  
+  submitBtn.textContent = 'Update Keyword';
+  submitBtn.classList.remove('btn-primary');
+  submitBtn.classList.add('btn-warning');
+  
+  formTitle.textContent = 'Edit Blocked Keyword';
+  cancelBtn.style.display = 'inline-block';
+  
+  keywordInput.focus();
+  keywordInput.scrollIntoView({ behavior: 'smooth', block: 'center' });
+}
+
+function cancelKeywordEdit() {
+  editingKeywordIndex = null;
+  
+  const keywordInput = document.getElementById('keyword');
+  const keywordRedirectInput = document.getElementById('keywordRedirect');
+  const submitBtn = document.querySelector('#addKeywordForm button[type="submit"]');
+  const formTitle = document.querySelector('#blocked-keywords .section h2');
+  const cancelBtn = document.getElementById('cancelKeywordEdit');
+  
+  keywordInput.value = '';
+  keywordRedirectInput.value = '';
+  
+  submitBtn.textContent = 'Add Keyword';
+  submitBtn.classList.remove('btn-warning');
+  submitBtn.classList.add('btn-primary');
+  
+  formTitle.textContent = 'Add Blocked Keyword';
+  cancelBtn.style.display = 'none';
+  
+  chrome.storage.local.set({ draftInputs: { keyword: '', keywordRedirect: '' } });
+}
+
+async function removeKeyword(index) {
+  currentSettings.blockedKeywords.splice(index, 1);
+  await chrome.storage.local.set({ blockedKeywords: currentSettings.blockedKeywords });
+  
+  await loadBlockedKeywords();
+  
+  showStatus('Keyword removed successfully', 'success');
+}
+
+async function updateGlobalRedirect() {
+  const globalRedirectInput = document.getElementById('globalRedirect');
+  const globalRedirect = globalRedirectInput.value.trim() || 'about:newtab';
+  
+  currentSettings.keywordSettings.globalRedirect = globalRedirect;
+  
+  await chrome.storage.local.set({ keywordSettings: currentSettings.keywordSettings });
+  
+  showStatus('Global redirect updated successfully', 'success');
 }
 
 // Clear all logs
@@ -373,10 +574,11 @@ function exportLogs() {
   showStatus('Logs exported successfully', 'success');
 }
 
-// Export settings as JSON
 function exportSettings() {
   const data = {
     blockedSites: currentSettings.blockedSites,
+    blockedKeywords: currentSettings.blockedKeywords,
+    keywordSettings: currentSettings.keywordSettings,
     settings: currentSettings.settings,
     exportDate: new Date().toISOString()
   };
@@ -385,7 +587,6 @@ function exportSettings() {
   showStatus('Settings exported successfully', 'success');
 }
 
-// Import settings from JSON
 async function importSettings(event) {
   const file = event.target.files[0];
   if (!file) return;
@@ -399,6 +600,17 @@ async function importSettings(event) {
       await chrome.storage.local.set({ blockedSites: data.blockedSites });
       await loadBlockedSites();
       chrome.runtime.sendMessage({ action: 'updateRules' });
+    }
+    
+    if (data.blockedKeywords) {
+      currentSettings.blockedKeywords = data.blockedKeywords;
+      await chrome.storage.local.set({ blockedKeywords: data.blockedKeywords });
+      await loadBlockedKeywords();
+    }
+    
+    if (data.keywordSettings) {
+      currentSettings.keywordSettings = data.keywordSettings;
+      await chrome.storage.local.set({ keywordSettings: data.keywordSettings });
     }
     
     if (data.settings) {
@@ -415,7 +627,6 @@ async function importSettings(event) {
   event.target.value = '';
 }
 
-// Reset to default settings
 async function resetToDefaults() {
   const defaultSites = [
     { domain: 'facebook.com', redirect: 'https://www.khanacademy.org' },
@@ -425,22 +636,26 @@ async function resetToDefaults() {
   ];
   
   currentSettings.blockedSites = defaultSites;
+  currentSettings.blockedKeywords = [];
+  currentSettings.keywordSettings = { globalRedirect: 'about:newtab' };
   currentSettings.settings = { enabled: true, darkMode: false };
   
   await chrome.storage.local.set({
     blockedSites: defaultSites,
+    blockedKeywords: [],
+    keywordSettings: { globalRedirect: 'about:newtab' },
     settings: currentSettings.settings
   });
   
   await loadSettings();
   await loadBlockedSites();
+  await loadBlockedKeywords();
   
   chrome.runtime.sendMessage({ action: 'updateRules' });
   
   showStatus('Reset to default settings', 'success');
 }
 
-// Download JSON file
 function downloadJSON(data, filename) {
   const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' });
   const url = URL.createObjectURL(blob);
@@ -451,7 +666,6 @@ function downloadJSON(data, filename) {
   URL.revokeObjectURL(url);
 }
 
-// Show status message
 function showStatus(message, type = 'info') {
   const statusEl = document.getElementById('statusMessage');
   statusEl.textContent = message;
