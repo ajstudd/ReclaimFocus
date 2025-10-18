@@ -11,6 +11,7 @@ let editingIndex = null;
 let editingKeywordIndex = null;
 let editingTimeLimitIndex = null;
 
+// Restore draft input fields from storage
 async function restoreInputFields() {
   try {
     const { draftInputs } = await chrome.storage.local.get('draftInputs');
@@ -57,6 +58,7 @@ async function restoreInputFields() {
   }
 }
 
+// Save draft input values to storage
 async function saveInputDrafts() {
   const domainInput = document.getElementById('domain');
   const redirectInput = document.getElementById('redirect');
@@ -93,6 +95,7 @@ document.addEventListener('DOMContentLoaded', async () => {
   startTimerUpdates();
 });
 
+// Load settings from storage
 async function loadSettings() {
   try {
     const data = await chrome.storage.local.get([
@@ -131,6 +134,7 @@ async function loadSettings() {
   }
 }
 
+// Load and display blocked sites
 async function loadBlockedSites() {
   const container = document.getElementById('blockedList');
   
@@ -167,6 +171,7 @@ async function loadBlockedSites() {
   });
 }
 
+// Load and display blocked keywords
 async function loadBlockedKeywords() {
   const container = document.getElementById('keywordList');
   
@@ -206,6 +211,7 @@ async function loadBlockedKeywords() {
   });
 }
 
+// Load and display activity logs
 async function loadLogs() {
   const container = document.getElementById('logsList');
   
@@ -247,6 +253,7 @@ async function loadLogs() {
   }).join('');
 }
 
+// Update statistics display
 function updateStats() {
   const totalAttempts = currentSettings.logs.length;
   document.getElementById('totalAttempts').textContent = totalAttempts;
@@ -262,6 +269,7 @@ function updateStats() {
   document.getElementById('todayAttempts').textContent = todayAttempts;
 }
 
+// Setup all event listeners for UI elements
 function setupEventListeners() {
   document.querySelectorAll('.tab-button').forEach(button => {
     button.addEventListener('click', () => {
@@ -270,13 +278,11 @@ function setupEventListeners() {
     });
   });
   
-  // Add site form
   document.getElementById('addSiteForm').addEventListener('submit', async (e) => {
     e.preventDefault();
     await addSite();
   });
   
-  // Add keyword form
   document.getElementById('addKeywordForm').addEventListener('submit', async (e) => {
     e.preventDefault();
     await addKeyword();
@@ -331,17 +337,13 @@ function setupEventListeners() {
   cooldownPeriodInput.addEventListener('input', saveInputDrafts);
   timeLimitRedirectInput.addEventListener('input', saveInputDrafts);
   
-  // Clear logs
   document.getElementById('clearLogs').addEventListener('click', async () => {
     if (confirm('Are you sure you want to clear all logs?')) {
       await clearLogs();
     }
   });
   
-  // Export logs
   document.getElementById('exportLogs').addEventListener('click', exportLogs);
-  
-  // Export settings
   document.getElementById('exportSettings').addEventListener('click', exportSettings);
   
   document.getElementById('importSettings').addEventListener('click', () => {
@@ -357,6 +359,7 @@ function setupEventListeners() {
   });
 }
 
+// Switch between tabs in the popup
 function switchTab(tabName) {
   document.querySelectorAll('.tab-button').forEach(btn => btn.classList.remove('active'));
   document.querySelectorAll('.tab-content').forEach(content => content.classList.remove('active'));
@@ -365,6 +368,7 @@ function switchTab(tabName) {
   document.getElementById(tabName).classList.add('active');
 }
 
+// Add or update a blocked site
 async function addSite() {
   const domainInput = document.getElementById('domain');
   const redirectInput = document.getElementById('redirect');
@@ -455,6 +459,7 @@ function editSite(index) {
   domainInput.scrollIntoView({ behavior: 'smooth', block: 'center' });
 }
 
+// Cancel editing a blocked site
 function cancelEdit() {
   editingIndex = null;
   
@@ -480,6 +485,7 @@ function cancelEdit() {
   chrome.storage.local.set({ draftInputs: { domain: '', redirect: '' } });
 }
 
+// Remove a blocked site
 async function removeSite(index) {
   currentSettings.blockedSites.splice(index, 1);
   await chrome.storage.local.set({ blockedSites: currentSettings.blockedSites });
@@ -491,6 +497,7 @@ async function removeSite(index) {
   showStatus('Site removed successfully', 'success');
 }
 
+// Add or update a blocked keyword
 async function addKeyword() {
   const keywordInput = document.getElementById('keyword');
   const keywordRedirectInput = document.getElementById('keywordRedirect');
@@ -541,6 +548,7 @@ async function addKeyword() {
   await loadBlockedKeywords();
 }
 
+// Edit an existing blocked keyword
 function editKeyword(index) {
   const item = currentSettings.blockedKeywords[index];
   
@@ -566,6 +574,7 @@ function editKeyword(index) {
   keywordInput.scrollIntoView({ behavior: 'smooth', block: 'center' });
 }
 
+// Cancel editing a blocked keyword
 function cancelKeywordEdit() {
   editingKeywordIndex = null;
   
@@ -588,6 +597,7 @@ function cancelKeywordEdit() {
   chrome.storage.local.set({ draftInputs: { keyword: '', keywordRedirect: '' } });
 }
 
+// Remove a blocked keyword
 async function removeKeyword(index) {
   currentSettings.blockedKeywords.splice(index, 1);
   await chrome.storage.local.set({ blockedKeywords: currentSettings.blockedKeywords });
@@ -597,6 +607,7 @@ async function removeKeyword(index) {
   showStatus('Keyword removed successfully', 'success');
 }
 
+// Update global redirect URL for keywords
 async function updateGlobalRedirect() {
   const globalRedirectInput = document.getElementById('globalRedirect');
   const globalRedirect = globalRedirectInput.value.trim() || 'about:newtab';
@@ -608,6 +619,7 @@ async function updateGlobalRedirect() {
   showStatus('Global redirect updated successfully', 'success');
 }
 
+// Load and display time-limited sites
 async function loadTimeLimitedSites() {
   const container = document.getElementById('timeLimitedList');
   
@@ -647,6 +659,7 @@ async function loadTimeLimitedSites() {
   });
 }
 
+// Add or update a time-limited site
 async function addTimeLimitSite() {
   const timeDomainInput = document.getElementById('timeDomain');
   const timeLimitInput = document.getElementById('timeLimit');
@@ -712,6 +725,7 @@ async function addTimeLimitSite() {
   chrome.storage.local.set({ draftInputs: { timeDomain: '', timeLimit: '', cooldownPeriod: '', timeLimitRedirect: '' } });
 }
 
+// Edit an existing time-limited site
 function editTimeLimitSite(index) {
   const site = currentSettings.timeLimitedSites[index];
   
@@ -730,9 +744,12 @@ function editTimeLimitSite(index) {
   const cancelBtn = document.getElementById('cancelTimeLimitEdit');
   cancelBtn.style.display = 'inline-block';
   
+  showStatus('Changes will apply to the next session. Current timer (if active) is unaffected.', 'info');
+  
   document.getElementById('timeDomain').scrollIntoView({ behavior: 'smooth', block: 'center' });
 }
 
+// Cancel editing a time-limited site
 function cancelTimeLimitEdit() {
   editingTimeLimitIndex = null;
   
@@ -757,16 +774,33 @@ function cancelTimeLimitEdit() {
   chrome.storage.local.set({ draftInputs: { timeDomain: '', timeLimit: '', cooldownPeriod: '', timeLimitRedirect: '' } });
 }
 
+// Remove a time-limited site
 async function removeTimeLimitSite(index) {
+  const site = currentSettings.timeLimitedSites[index];
+  const domain = site.domain;
+  
+  if (!confirm(`Remove time limit for ${domain}? This will stop any active timer and clear cooldown.`)) {
+    return;
+  }
+  
   currentSettings.timeLimitedSites.splice(index, 1);
   await chrome.storage.local.set({ timeLimitedSites: currentSettings.timeLimitedSites });
+  
+  try {
+    await chrome.runtime.sendMessage({
+      action: 'cleanupTimeLimitedSite',
+      domain: domain
+    });
+  } catch (error) {
+    console.error('Error cleaning up timer:', error);
+  }
   
   await loadTimeLimitedSites();
   
   showStatus('Time-limited site removed successfully', 'success');
 }
 
-// Clear all logs
+// Clear all activity logs
 async function clearLogs() {
   currentSettings.logs = [];
   await chrome.storage.local.set({ logs: [] });
@@ -778,7 +812,7 @@ async function clearLogs() {
   showStatus('Logs cleared successfully', 'success');
 }
 
-// Export logs as JSON
+// Export logs to JSON file
 function exportLogs() {
   const data = {
     logs: currentSettings.logs,
@@ -789,6 +823,7 @@ function exportLogs() {
   showStatus('Logs exported successfully', 'success');
 }
 
+// Export settings to JSON file
 function exportSettings() {
   const data = {
     blockedSites: currentSettings.blockedSites,
@@ -803,6 +838,7 @@ function exportSettings() {
   showStatus('Settings exported successfully', 'success');
 }
 
+// Import settings from JSON file
 async function importSettings(event) {
   const file = event.target.files[0];
   if (!file) return;
@@ -849,6 +885,7 @@ async function importSettings(event) {
   event.target.value = '';
 }
 
+// Reset all settings to defaults
 async function resetToDefaults() {
   const defaultSites = [
     { domain: 'facebook.com', redirect: 'https://www.khanacademy.org' },
@@ -881,6 +918,7 @@ async function resetToDefaults() {
   showStatus('Reset to default settings', 'success');
 }
 
+// Download data as JSON file
 function downloadJSON(data, filename) {
   const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' });
   const url = URL.createObjectURL(blob);
@@ -891,6 +929,7 @@ function downloadJSON(data, filename) {
   URL.revokeObjectURL(url);
 }
 
+// Show status message to user
 function showStatus(message, type = 'info') {
   const statusEl = document.getElementById('statusMessage');
   statusEl.textContent = message;
@@ -902,6 +941,7 @@ function showStatus(message, type = 'info') {
   }, 3000);
 }
 
+// Listen for storage changes
 chrome.storage.onChanged.addListener(async (changes, namespace) => {
   if (namespace === 'local') {
     if (changes.blockedSites) {
@@ -918,11 +958,13 @@ chrome.storage.onChanged.addListener(async (changes, namespace) => {
 
 let timerUpdateInterval = null;
 
+// Start polling for timer updates
 function startTimerUpdates() {
   updateTimerDisplay();
   timerUpdateInterval = setInterval(updateTimerDisplay, 1000);
 }
 
+// Update timer display in popup
 async function updateTimerDisplay() {
   try {
     const response = await chrome.runtime.sendMessage({ action: 'getTimerStatus' });
