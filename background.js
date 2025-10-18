@@ -8,8 +8,9 @@ const DEFAULT_BLOCKED_SITES = [
 const DEFAULT_BLOCKED_KEYWORDS = [];
 const DEFAULT_TIME_LIMITED_SITES = [];
 
-const activeTimers = new Map();
-const cooldownTimers = new Map();
+const activeTimers = new Map(); // domain -> timer data (shared across all tabs)
+const cooldownTimers = new Map(); // domain -> cooldown data
+const activeTabs = new Map(); // domain -> Set of tabIds
 
 chrome.runtime.onInstalled.addListener(async () => {
   console.log('ReclaimFocus installed');
@@ -45,6 +46,10 @@ chrome.runtime.onInstalled.addListener(async () => {
 
 chrome.tabs.onUpdated.addListener(async (tabId, changeInfo, tab) => {
   if (changeInfo.url) {
+    for (const [domain, tabs] of activeTabs.entries()) {
+      tabs.delete(tabId);
+    }
+    
     await checkAndRedirect(tabId, changeInfo.url);
   }
 });
@@ -68,7 +73,6 @@ async function checkAndRedirect(tabId, url) {
     
     if (!settings?.enabled) return;
     
-    // Check time-limited sites first
     if (timeLimitedSites && timeLimitedSites.length > 0) {
       const urlObj = new URL(url);
       const hostname = urlObj.hostname.replace(/^www\./, '');
@@ -88,7 +92,12 @@ async function checkAndRedirect(tabId, url) {
           return;
         }
         
-        startTimer(tabId, hostname, timeLimitedSite);
+        if (!activeTabs.has(hostname)) {
+          activeTabs.set(hostname, new Set());
+        }
+        activeTabs.get(hostname).add(tabId);
+        
+        startTimer(hostname, timeLimitedSite);
         return;
       }
     }
@@ -130,6 +139,7 @@ async function checkAndRedirect(tabId, url) {
   }
 }
 
+// Check if URL contains blocked keywords
 function checkKeywordInUrl(url, blockedKeywords, keywordSettings) {
   try {
     const urlObj = new URL(url);
@@ -171,7 +181,7 @@ function checkKeywordInUrl(url, blockedKeywords, keywordSettings) {
   }
 }
 
-// Log blocked attempt
+// Log website blocking attempt
 async function logAttempt(url) {
   try {
     const { logs = [] } = await chrome.storage.local.get('logs');
@@ -257,6 +267,7 @@ async function updateBlockingRules() {
   }
 }
 
+// Handle messages from popup and content scripts
 chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
   if (message.action === 'updateRules') {
     updateBlockingRules().then(() => {
@@ -274,31 +285,58 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
   }
   
   if (message.action === 'getTimerStatus') {
-    chrome.tabs.query({ active: true, currentWindow: true }, (tabs) => {
-      if (tabs[0]) {
-        const timerData = activeTimers.get(tabs[0].id);
-        if (timerData) {
-          const timeRemaining = Math.max(0, timerData.timeLimit - timerData.elapsedTime);
-          const minutesRemaining = Math.floor(timeRemaining / 60000);
-          const secondsRemaining = Math.floor((timeRemaining % 60000) / 1000);
+    chrome.tabs.query({ active: true, currentWindow: true }, async (tabs) => {
+      if (tabs[0] && tabs[0].url) {
+        try {
+          const urlObj = new URL(tabs[0].url);
+          const hostname = urlObj.hostname.replace(/^www\./, '');
           
-          sendResponse({ 
-            timerData: {
-              domain: timerData.domain,
-              timeRemaining: timeRemaining,
-              minutesRemaining: minutesRemaining,
-              secondsRemaining: secondsRemaining,
-              isPaused: timerData.isPaused,
-              tabId: tabs[0].id
-            }
-          });
-        } else {
+          const timerData = activeTimers.get(hostname);
+          if (timerData) {
+            const timeRemaining = Math.max(0, timerData.timeLimit - timerData.elapsedTime);
+            const minutesRemaining = Math.floor(timeRemaining / 60000);
+            const secondsRemaining = Math.floor((timeRemaining % 60000) / 1000);
+            
+            sendResponse({ 
+              timerData: {
+                domain: timerData.domain,
+                timeRemaining: timeRemaining,
+                minutesRemaining: minutesRemaining,
+                secondsRemaining: secondsRemaining,
+                isPaused: timerData.isPaused
+              }
+            });
+          } else {
+            sendResponse({ timerData: null });
+          }
+        } catch (error) {
           sendResponse({ timerData: null });
         }
       } else {
         sendResponse({ timerData: null });
       }
     });
+    return true;
+  }
+  
+  if (message.action === 'cleanupTimeLimitedSite') {
+    const domain = message.domain;
+    
+    activeTimers.delete(domain);
+    
+    const tabs = activeTabs.get(domain) || new Set();
+    for (const tabId of tabs) {
+      try {
+        chrome.tabs.update(tabId, { url: 'about:newtab' });
+      } catch (error) {
+        console.error(`Error redirecting tab ${tabId}:`, error);
+      }
+    }
+    
+    activeTabs.delete(domain);
+    cooldownTimers.delete(`cooldown_${domain}`);
+    
+    sendResponse({ success: true });
     return true;
   }
 });
@@ -311,10 +349,7 @@ chrome.tabs.onActivated.addListener(async (activeInfo) => {
   await handleTabActivation(activeInfo.tabId);
 });
 
-chrome.tabs.onRemoved.addListener((tabId) => {
-  cleanupTimer(tabId);
-});
-
+// Handle tab activation to start or resume timers
 async function handleTabActivation(tabId) {
   try {
     const tab = await chrome.tabs.get(tabId);
@@ -341,22 +376,42 @@ async function handleTabActivation(tabId) {
         return;
       }
       
-      startTimer(tabId, hostname, timeLimitedSite);
+      if (!activeTabs.has(hostname)) {
+        activeTabs.set(hostname, new Set());
+      }
+      activeTabs.get(hostname).add(tabId);
+      
+      startTimer(hostname, timeLimitedSite);
     }
   } catch (error) {
     console.error('Error handling tab activation:', error);
   }
 }
 
-function startTimer(tabId, domain, siteConfig) {
-  if (activeTimers.has(tabId)) {
-    const existing = activeTimers.get(tabId);
-    if (existing.domain === domain) {
-      existing.isPaused = false;
-      existing.lastActiveTime = Date.now();
-      checkTimer(tabId);
-      return;
+// Start or resume timer for a domain
+async function startTimer(domain, siteConfig) {
+  if (activeTimers.has(domain)) {
+    const existing = activeTimers.get(domain);
+    
+    const tabs = await chrome.tabs.query({ active: true, currentWindow: true });
+    if (tabs.length > 0) {
+      try {
+        const urlObj = new URL(tabs[0].url);
+        const hostname = urlObj.hostname.replace(/^www\./, '');
+        
+        if (hostname === domain) {
+          const wasPaused = existing.isPaused;
+          existing.isPaused = false;
+          existing.lastActiveTime = Date.now();
+          
+          if (wasPaused) {
+            checkTimer(domain);
+          }
+        }
+      } catch (error) {
+      }
     }
+    return;
   }
   
   const timerData = {
@@ -370,19 +425,48 @@ function startTimer(tabId, domain, siteConfig) {
     isPaused: false
   };
   
-  activeTimers.set(tabId, timerData);
-  checkTimer(tabId);
+  activeTimers.set(domain, timerData);
+  checkTimer(domain);
 }
 
-async function checkTimer(tabId) {
-  const timerData = activeTimers.get(tabId);
-  if (!timerData || timerData.isPaused) return;
+// Check timer status and update elapsed time
+async function checkTimer(domain) {
+  const timerData = activeTimers.get(domain);
+  if (!timerData) return;
   
   try {
-    const tab = await chrome.tabs.get(tabId);
-    if (!tab.active) {
+    const allTabs = await chrome.tabs.query({});
+    const tabs = activeTabs.get(domain) || new Set();
+    
+    let isAnyTabActive = false;
+    let hasAnyTabWithDomain = false;
+    
+    for (const tab of allTabs) {
+      if (tabs.has(tab.id)) {
+        hasAnyTabWithDomain = true;
+        if (tab.active) {
+          isAnyTabActive = true;
+          break;
+        }
+      }
+    }
+    
+    if (!hasAnyTabWithDomain) {
       timerData.isPaused = true;
       return;
+    }
+    
+    if (!isAnyTabActive) {
+      if (!timerData.isPaused) {
+        timerData.isPaused = true;
+      }
+      setTimeout(() => checkTimer(domain), 1000);
+      return;
+    }
+    
+    if (timerData.isPaused) {
+      timerData.isPaused = false;
+      timerData.lastActiveTime = Date.now();
     }
     
     const now = Date.now();
@@ -391,29 +475,38 @@ async function checkTimer(tabId) {
     timerData.lastActiveTime = now;
     
     if (timerData.elapsedTime >= timerData.timeLimit) {
-      await handleTimeExpired(tabId, timerData);
+      await handleTimeExpired(domain, timerData);
       return;
     }
     
-    setTimeout(() => checkTimer(tabId), 1000);
+    setTimeout(() => checkTimer(domain), 1000);
   } catch (error) {
-    cleanupTimer(tabId);
+    console.error('Error checking timer:', error);
+    cleanupTimer(domain);
   }
 }
 
-async function handleTimeExpired(tabId, timerData) {
+// Handle timer expiration and redirect all tabs
+async function handleTimeExpired(domain, timerData) {
   try {
-    const cooldownKey = `cooldown_${timerData.domain}`;
+    const cooldownKey = `cooldown_${domain}`;
     cooldownTimers.set(cooldownKey, {
       expiresAt: Date.now() + timerData.cooldown,
-      domain: timerData.domain
+      domain: domain
     });
     
     setTimeout(() => {
       cooldownTimers.delete(cooldownKey);
     }, timerData.cooldown);
     
-    await chrome.tabs.update(tabId, { url: timerData.redirect });
+    const tabs = activeTabs.get(domain) || new Set();
+    for (const tabId of tabs) {
+      try {
+        await chrome.tabs.update(tabId, { url: timerData.redirect });
+      } catch (error) {
+        console.error(`Error redirecting tab ${tabId}:`, error);
+      }
+    }
     
     const { logs = [] } = await chrome.storage.local.get('logs');
     const newLog = {
@@ -433,12 +526,27 @@ async function handleTimeExpired(tabId, timerData) {
     await chrome.storage.local.set({ logs });
     await updateBadge(logs.length);
     
-    cleanupTimer(tabId);
+    cleanupTimer(domain);
   } catch (error) {
     console.error('Error handling time expired:', error);
   }
 }
 
-function cleanupTimer(tabId) {
-  activeTimers.delete(tabId);
+// Cleanup timer data for a domain
+function cleanupTimer(domain) {
+  activeTimers.delete(domain);
+  activeTabs.delete(domain);
 }
+
+// Cleanup tab tracking when tab is closed
+chrome.tabs.onRemoved.addListener((tabId) => {
+  for (const [domain, tabs] of activeTabs.entries()) {
+    tabs.delete(tabId);
+    if (tabs.size === 0) {
+      const timerData = activeTimers.get(domain);
+      if (timerData) {
+        timerData.isPaused = true;
+      }
+    }
+  }
+});
