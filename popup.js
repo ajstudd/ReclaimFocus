@@ -666,7 +666,9 @@ async function addTimeLimitSite() {
   const cooldownPeriodInput = document.getElementById('cooldownPeriod');
   const timeLimitRedirectInput = document.getElementById('timeLimitRedirect');
   
-  const domain = timeDomainInput.value.trim().toLowerCase().replace(/^https?:\/\//, '').replace(/\/$/, '');
+  let domain = timeDomainInput.value.trim().toLowerCase().replace(/^https?:\/\//, '').replace(/\/$/, '');
+  domain = domain.replace(/^www\./, '');
+  
   const timeLimit = parseInt(timeLimitInput.value);
   const cooldown = parseInt(cooldownPeriodInput.value);
   const redirect = timeLimitRedirectInput.value.trim();
@@ -777,9 +779,9 @@ function cancelTimeLimitEdit() {
 // Remove a time-limited site
 async function removeTimeLimitSite(index) {
   const site = currentSettings.timeLimitedSites[index];
-  const domain = site.domain;
+  const domain = site.domain.replace(/^www\./, '');
   
-  if (!confirm(`Remove time limit for ${domain}? This will stop any active timer and clear cooldown.`)) {
+  if (!confirm(`Remove time limit for ${site.domain}? This will stop any active timer and clear cooldown.`)) {
     return;
   }
   

@@ -323,16 +323,6 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
     const domain = message.domain;
     
     activeTimers.delete(domain);
-    
-    const tabs = activeTabs.get(domain) || new Set();
-    for (const tabId of tabs) {
-      try {
-        chrome.tabs.update(tabId, { url: 'about:newtab' });
-      } catch (error) {
-        console.error(`Error redirecting tab ${tabId}:`, error);
-      }
-    }
-    
     activeTabs.delete(domain);
     cooldownTimers.delete(`cooldown_${domain}`);
     
