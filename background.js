@@ -11,9 +11,16 @@ const DEFAULT_TIME_LIMITED_SITES = [];
 const activeTimers = new Map(); // domain -> timer data (shared across all tabs)
 const cooldownTimers = new Map(); // domain -> cooldown data
 const activeTabs = new Map(); // domain -> Set of tabIds
+const timerIntervals = new Map(); // domain -> setTimeout ID for cleanup
+
+// Restore timers and cooldowns on startup
+chrome.runtime.onStartup.addListener(async () => {
+  await restoreTimersFromStorage();
+});
 
 chrome.runtime.onInstalled.addListener(async () => {
   console.log('ReclaimFocus installed');
+  await restoreTimersFromStorage();
   
   const { blockedSites, blockedKeywords } = await chrome.storage.local.get(['blockedSites', 'blockedKeywords']);
   
@@ -43,6 +50,61 @@ chrome.runtime.onInstalled.addListener(async () => {
   
   await updateBlockingRules();
 });
+
+// Restore timers from storage after browser restart
+async function restoreTimersFromStorage() {
+  try {
+    const { persistedTimers, persistedCooldowns } = await chrome.storage.local.get(['persistedTimers', 'persistedCooldowns']);
+    
+    if (persistedCooldowns) {
+      for (const [key, cooldownData] of Object.entries(persistedCooldowns)) {
+        if (Date.now() < cooldownData.expiresAt) {
+          cooldownTimers.set(key, cooldownData);
+          const remainingTime = cooldownData.expiresAt - Date.now();
+          setTimeout(() => {
+            cooldownTimers.delete(key);
+            saveCooldownsToStorage();
+          }, remainingTime);
+        }
+      }
+    }
+    
+    if (persistedTimers) {
+      for (const [domain, timerData] of Object.entries(persistedTimers)) {
+        activeTimers.set(domain, timerData);
+        timerData.isPaused = true;
+      }
+    }
+  } catch (error) {
+    console.error('Error restoring timers:', error);
+  }
+}
+
+// Save timers to storage for persistence
+async function saveTimersToStorage() {
+  try {
+    const timersObj = {};
+    for (const [domain, timerData] of activeTimers.entries()) {
+      timersObj[domain] = timerData;
+    }
+    await chrome.storage.local.set({ persistedTimers: timersObj });
+  } catch (error) {
+    console.error('Error saving timers:', error);
+  }
+}
+
+// Save cooldowns to storage for persistence
+async function saveCooldownsToStorage() {
+  try {
+    const cooldownsObj = {};
+    for (const [key, cooldownData] of cooldownTimers.entries()) {
+      cooldownsObj[key] = cooldownData;
+    }
+    await chrome.storage.local.set({ persistedCooldowns: cooldownsObj });
+  } catch (error) {
+    console.error('Error saving cooldowns:', error);
+  }
+}
 
 chrome.tabs.onUpdated.addListener(async (tabId, changeInfo, tab) => {
   if (changeInfo.url) {
@@ -322,9 +384,13 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
   if (message.action === 'cleanupTimeLimitedSite') {
     const domain = message.domain;
     
+    clearTimerInterval(domain);
     activeTimers.delete(domain);
     activeTabs.delete(domain);
     cooldownTimers.delete(`cooldown_${domain}`);
+    
+    saveTimersToStorage();
+    saveCooldownsToStorage();
     
     sendResponse({ success: true });
     return true;
@@ -334,6 +400,13 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
 chrome.storage.local.get('logs').then(({ logs = [] }) => {
   updateBadge(logs.length);
 });
+
+// Periodic save to ensure persistence (every 5 seconds)
+setInterval(() => {
+  if (activeTimers.size > 0) {
+    saveTimersToStorage();
+  }
+}, 5000);
 
 chrome.tabs.onActivated.addListener(async (activeInfo) => {
   await handleTabActivation(activeInfo.tabId);
@@ -397,6 +470,8 @@ async function startTimer(domain, siteConfig) {
           if (wasPaused) {
             checkTimer(domain);
           }
+          
+          await saveTimersToStorage();
         }
       } catch (error) {
       }
@@ -416,13 +491,17 @@ async function startTimer(domain, siteConfig) {
   };
   
   activeTimers.set(domain, timerData);
+  await saveTimersToStorage();
   checkTimer(domain);
 }
 
 // Check timer status and update elapsed time
 async function checkTimer(domain) {
   const timerData = activeTimers.get(domain);
-  if (!timerData) return;
+  if (!timerData) {
+    clearTimerInterval(domain);
+    return;
+  }
   
   try {
     const allTabs = await chrome.tabs.query({});
@@ -443,20 +522,25 @@ async function checkTimer(domain) {
     
     if (!hasAnyTabWithDomain) {
       timerData.isPaused = true;
+      await saveTimersToStorage();
+      clearTimerInterval(domain);
       return;
     }
     
     if (!isAnyTabActive) {
       if (!timerData.isPaused) {
         timerData.isPaused = true;
+        await saveTimersToStorage();
       }
-      setTimeout(() => checkTimer(domain), 1000);
+      const timeoutId = setTimeout(() => checkTimer(domain), 1000);
+      timerIntervals.set(domain, timeoutId);
       return;
     }
     
     if (timerData.isPaused) {
       timerData.isPaused = false;
       timerData.lastActiveTime = Date.now();
+      await saveTimersToStorage();
     }
     
     const now = Date.now();
@@ -469,10 +553,21 @@ async function checkTimer(domain) {
       return;
     }
     
-    setTimeout(() => checkTimer(domain), 1000);
+    await saveTimersToStorage();
+    
+    const timeoutId = setTimeout(() => checkTimer(domain), 1000);
+    timerIntervals.set(domain, timeoutId);
   } catch (error) {
     console.error('Error checking timer:', error);
     cleanupTimer(domain);
+  }
+}
+
+// Clear timer interval to prevent memory leaks
+function clearTimerInterval(domain) {
+  if (timerIntervals.has(domain)) {
+    clearTimeout(timerIntervals.get(domain));
+    timerIntervals.delete(domain);
   }
 }
 
@@ -485,8 +580,11 @@ async function handleTimeExpired(domain, timerData) {
       domain: domain
     });
     
+    await saveCooldownsToStorage();
+    
     setTimeout(() => {
       cooldownTimers.delete(cooldownKey);
+      saveCooldownsToStorage();
     }, timerData.cooldown);
     
     const tabs = activeTabs.get(domain) || new Set();
@@ -523,19 +621,23 @@ async function handleTimeExpired(domain, timerData) {
 }
 
 // Cleanup timer data for a domain
-function cleanupTimer(domain) {
+async function cleanupTimer(domain) {
+  clearTimerInterval(domain);
   activeTimers.delete(domain);
   activeTabs.delete(domain);
+  await saveTimersToStorage();
 }
 
 // Cleanup tab tracking when tab is closed
-chrome.tabs.onRemoved.addListener((tabId) => {
+chrome.tabs.onRemoved.addListener(async (tabId) => {
   for (const [domain, tabs] of activeTabs.entries()) {
     tabs.delete(tabId);
     if (tabs.size === 0) {
       const timerData = activeTimers.get(domain);
       if (timerData) {
         timerData.isPaused = true;
+        await saveTimersToStorage();
+        clearTimerInterval(domain);
       }
     }
   }
