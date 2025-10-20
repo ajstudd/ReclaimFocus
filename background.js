@@ -465,7 +465,7 @@ async function startTimer(domain, siteConfig) {
         if (hostname === domain) {
           const wasPaused = existing.isPaused;
           existing.isPaused = false;
-          existing.lastActiveTime = Date.now();
+          existing.lastActiveTime = Date.now(); // Reset to current time to prevent adding browser-closed time
           
           if (wasPaused) {
             checkTimer(domain);
@@ -541,6 +541,9 @@ async function checkTimer(domain) {
       timerData.isPaused = false;
       timerData.lastActiveTime = Date.now();
       await saveTimersToStorage();
+      const timeoutId = setTimeout(() => checkTimer(domain), 1000);
+      timerIntervals.set(domain, timeoutId);
+      return;
     }
     
     const now = Date.now();
