@@ -1,0 +1,224 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Zen Mode - ReclaimFocus</title>
+  <style>
+    * {
+      margin: 0;
+      padding: 0;
+      box-sizing: border-box;
+    }
+
+    body {
+      overflow: hidden;
+      background-color: #000000;
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+    }
+
+    #zenCanvas {
+      position: fixed;
+      top: 0;
+      left: 0;
+      width: 100%;
+      height: 100%;
+      display: block;
+    }
+
+    .zen-controls {
+      position: fixed;
+      top: 25px;
+      right: 25px;
+      z-index: 1000;
+      display: flex;
+      gap: 10px;
+      opacity: 0.5;
+      transition: opacity 0.3s ease;
+    }
+
+    .zen-controls:hover {
+      opacity: 1;
+    }
+
+    .zen-btn {
+      padding: 10px 20px;
+      background-color: rgba(255, 255, 255, 0.05);
+      color: rgba(255, 255, 255, 0.6);
+      border: 1px solid rgba(255, 255, 255, 0.08);
+      border-radius: 20px;
+      font-size: 13px;
+      font-weight: 400;
+      letter-spacing: 0.5px;
+      cursor: pointer;
+      transition: all 0.3s ease;
+      backdrop-filter: blur(20px);
+      display: flex;
+      align-items: center;
+      gap: 6px;
+    }
+
+    .zen-btn:hover {
+      background-color: rgba(255, 255, 255, 0.1);
+      color: rgba(255, 255, 255, 0.9);
+      border-color: rgba(255, 255, 255, 0.15);
+      transform: scale(1.02);
+    }
+
+    .zen-btn:active {
+      transform: scale(0.98);
+    }
+
+    .zen-message {
+      position: fixed;
+      bottom: 30px;
+      left: 50%;
+      transform: translateX(-50%);
+      color: rgba(255, 255, 255, 0.25);
+      font-size: 12px;
+      text-align: center;
+      z-index: 1000;
+      font-weight: 300;
+      letter-spacing: 1px;
+      opacity: 0.5;
+      transition: opacity 0.3s ease;
+    }
+
+    .zen-message:hover {
+      opacity: 1;
+    }
+
+    .zen-quote {
+      position: fixed;
+      top: 50%;
+      left: 50%;
+      transform: translate(-50%, -50%);
+      color: rgba(255, 255, 255, 0.5);
+      font-size: 32px;
+      text-align: center;
+      max-width: 800px;
+      line-height: 1.8;
+      z-index: 999;
+      font-weight: 300;
+      letter-spacing: 2px;
+      transition: opacity 1.5s ease-in-out;
+      font-family: 'Georgia', 'Times New Roman', serif;
+      padding: 0 40px;
+    }
+
+    .zen-quote::before {
+      content: '"';
+      font-size: 60px;
+      position: absolute;
+      left: -10px;
+      top: -20px;
+      opacity: 0.3;
+      font-family: 'Georgia', serif;
+    }
+
+    .zen-quote::after {
+      content: '"';
+      font-size: 60px;
+      position: absolute;
+      right: -10px;
+      bottom: -40px;
+      opacity: 0.3;
+      font-family: 'Georgia', serif;
+    }
+
+    #volumeControl {
+      position: fixed;
+      bottom: 25px;
+      right: 25px;
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      background-color: rgba(255, 255, 255, 0.05);
+      padding: 10px 18px;
+      border-radius: 20px;
+      backdrop-filter: blur(20px);
+      border: 1px solid rgba(255, 255, 255, 0.08);
+      opacity: 0.5;
+      transition: opacity 0.3s ease;
+    }
+
+    #volumeControl:hover {
+      opacity: 1;
+    }
+
+    #volumeSlider {
+      width: 80px;
+      height: 3px;
+      cursor: pointer;
+      -webkit-appearance: none;
+      appearance: none;
+      background: rgba(255, 255, 255, 0.2);
+      outline: none;
+      border-radius: 3px;
+    }
+
+    #volumeSlider::-webkit-slider-thumb {
+      -webkit-appearance: none;
+      appearance: none;
+      width: 12px;
+      height: 12px;
+      background: rgba(255, 255, 255, 0.8);
+      cursor: pointer;
+      border-radius: 50%;
+      transition: all 0.3s ease;
+    }
+
+    #volumeSlider::-webkit-slider-thumb:hover {
+      background: rgba(255, 255, 255, 1);
+      transform: scale(1.2);
+    }
+
+    #volumeSlider::-moz-range-thumb {
+      width: 12px;
+      height: 12px;
+      background: rgba(255, 255, 255, 0.8);
+      cursor: pointer;
+      border-radius: 50%;
+      border: none;
+      transition: all 0.3s ease;
+    }
+
+    #volumeSlider::-moz-range-thumb:hover {
+      background: rgba(255, 255, 255, 1);
+      transform: scale(1.2);
+    }
+
+    .volume-icon {
+      color: rgba(255, 255, 255, 0.6);
+      font-size: 14px;
+    }
+  </style>
+</head>
+<body>
+  <canvas id="zenCanvas"></canvas>
+  
+  <div class="zen-quote">
+    <p id="quoteText">Breathe in peace, breathe out stress...</p>
+  </div>
+  
+  <div class="zen-controls">
+    <button id="muteBtn" class="zen-btn" title="Mute/Unmute">
+      <span id="muteIcon">🔊</span>
+    </button>
+    <button id="exitBtn" class="zen-btn" title="Exit Zen Mode">
+      <span>✕</span>
+    </button>
+  </div>
+
+  <div class="zen-message">
+    ESC TO EXIT • F11 FOR FULLSCREEN
+  </div>
+
+  <div id="volumeControl">
+    <span class="volume-icon">🎵</span>
+    <input type="range" id="volumeSlider" min="0" max="100" value="50">
+  </div>
+
+  <script src="zenmode.js"></script>
+</body>
+</html>
