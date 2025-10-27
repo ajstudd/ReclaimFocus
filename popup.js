@@ -319,6 +319,11 @@ function setupEventListeners() {
     await chrome.storage.local.set({ settings: currentSettings.settings });
   });
   
+  document.getElementById('zenModeToggle').addEventListener('click', () => {
+    // Open zen mode in a new tab
+    chrome.tabs.create({ url: chrome.runtime.getURL('zenmode.html') });
+  });
+  
   const domainInput = document.getElementById('domain');
   const redirectInput = document.getElementById('redirect');
   const keywordInput = document.getElementById('keyword');

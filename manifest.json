@@ -31,5 +31,11 @@
   },
   "declarative_net_request": {
     "rule_resources": []
-  }
+  },
+  "web_accessible_resources": [
+    {
+      "resources": ["zenmode.html", "zenmode.js"],
+      "matches": ["<all_urls>"]
+    }
+  ]
 }
