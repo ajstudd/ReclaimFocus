@@ -9,16 +9,26 @@ let isMuted = false;
 
 // Inspirational quotes
 const quotes = [
-  "Breathe in peace, breathe out stress...",
-  "Every moment is a fresh beginning.",
-  "The present moment is all you have.",
-  "Peace comes from within. Do not seek it without.",
-  "Let go of what was, embrace what is.",
-  "Inhale the future, exhale the past.",
-  "Be still and know.",
-  "Your mind is a garden, tend it well.",
-  "Silence is the sleep that nourishes wisdom.",
-  "The quieter you become, the more you can hear."
+  "Discipline is choosing between what you want now and what you want most.",
+  "Action is the foundational key to all success.",
+  "The work you do today builds the future you desire.",
+  "You are capable of more than you know. Believe in yourself.",
+  "Focus only on what you can control. Let go of the rest.",
+  "This moment is all we truly have. Be fully present.",
+  "Peace comes from accepting what is, not resisting what isn't.",
+  "Know thyself. Regular introspection reveals your true path.",
+  "Small daily improvements lead to stunning long-term results.",
+  "Your thoughts shape your reality. Choose optimism.",
+  "Hard work beats talent when talent doesn't work hard.",
+  "The obstacle is the way. Embrace challenges as growth.",
+  "Self-discipline is self-love. You deserve your own commitment.",
+  "Start where you are. Use what you have. Do what you can.",
+  "Inner peace begins when you choose not to let others control your emotions.",
+  "Your potential is endless. Your dedication determines your success.",
+  "The present moment is a gift. That's why it's called the present.",
+  "Consistent action, no matter how small, creates unstoppable momentum.",
+  "Believe you can and you're halfway there.",
+  "Control your mind or it will control you. Choose peace."
 ];
 
 let currentQuoteIndex = 0;
