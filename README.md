@@ -2,6 +2,22 @@
 
 A Chrome extension that blocks distracting websites and search keywords, redirecting you to productive alternatives. Now featuring **Zen Mode** - a full-screen meditation experience for mental clarity and focus.
 
+## Installation
+
+### From Chrome Web Store
+
+**[Install ReclaimFocus from Chrome Web Store](https://chromewebstore.google.com/detail/reclaimfocus/dedffgpnlimhekdkgomcpmebokpjmdgn)**
+
+Click the link above to install the extension directly from the Chrome Web Store.
+
+### From Source
+
+1. Clone or download this repository
+2. Open Chrome and navigate to `chrome://extensions/`
+3. Enable "Developer mode" (toggle in top-right)
+4. Click "Load unpacked" and select the project folder
+5. The extension will appear in your toolbar
+
 ## Features
 
 - **🧘 Zen Mode** - Immersive meditation environment with starry sky and ambient music
@@ -39,16 +55,6 @@ Transform your browser into a peaceful sanctuary for meditation and mental clari
 5. Press **ESC** to exit when ready
 
 Perfect for meditation breaks, stress relief, or transitioning between tasks.
-
-## Installation
-
-### From Source
-
-1. Clone or download this repository
-2. Open Chrome and navigate to `chrome://extensions/`
-3. Enable "Developer mode" (toggle in top-right)
-4. Click "Load unpacked" and select the project folder
-5. The extension will appear in your toolbar
 
 ## Usage
 
