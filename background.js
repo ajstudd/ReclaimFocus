@@ -230,7 +230,9 @@ function checkKeywordInUrl(url, blockedKeywords, keywordSettings) {
     
     for (const keywordObj of blockedKeywords) {
       const keyword = keywordObj.keyword.toLowerCase();
-      if (searchQuery.includes(keyword)) {
+      // Use word boundary regex to match whole words only
+      const regex = new RegExp('\\b' + keyword.replace(/[.*+?^${}()|[\]\\]/g, '\\$&') + '\\b', 'i');
+      if (regex.test(searchQuery)) {
         const redirect = keywordObj.redirect || keywordSettings?.globalRedirect || 'about:newtab';
         return { keyword: keywordObj.keyword, redirect };
       }

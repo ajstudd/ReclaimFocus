@@ -492,6 +492,17 @@ function cancelEdit() {
 
 // Remove a blocked site
 async function removeSite(index) {
+  // If we're editing this item or an item after it, reset/adjust the editing index
+  if (editingIndex !== null) {
+    if (editingIndex === index) {
+      // Removing the item being edited - cancel edit mode
+      cancelEdit();
+    } else if (editingIndex > index) {
+      // Adjust index since we're removing an item before the one being edited
+      editingIndex--;
+    }
+  }
+  
   currentSettings.blockedSites.splice(index, 1);
   await chrome.storage.local.set({ blockedSites: currentSettings.blockedSites });
   
@@ -604,6 +615,17 @@ function cancelKeywordEdit() {
 
 // Remove a blocked keyword
 async function removeKeyword(index) {
+  // If we're editing this item or an item after it, reset/adjust the editing index
+  if (editingKeywordIndex !== null) {
+    if (editingKeywordIndex === index) {
+      // Removing the item being edited - cancel edit mode
+      cancelKeywordEdit();
+    } else if (editingKeywordIndex > index) {
+      // Adjust index since we're removing an item before the one being edited
+      editingKeywordIndex--;
+    }
+  }
+  
   currentSettings.blockedKeywords.splice(index, 1);
   await chrome.storage.local.set({ blockedKeywords: currentSettings.blockedKeywords });
   
@@ -788,6 +810,17 @@ async function removeTimeLimitSite(index) {
   
   if (!confirm(`Remove time limit for ${site.domain}? This will stop any active timer and clear cooldown.`)) {
     return;
+  }
+  
+  // If we're editing this item or an item after it, reset/adjust the editing index
+  if (editingTimeLimitIndex !== null) {
+    if (editingTimeLimitIndex === index) {
+      // Removing the item being edited - cancel edit mode
+      cancelTimeLimitEdit();
+    } else if (editingTimeLimitIndex > index) {
+      // Adjust index since we're removing an item before the one being edited
+      editingTimeLimitIndex--;
+    }
   }
   
   currentSettings.timeLimitedSites.splice(index, 1);

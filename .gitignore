@@ -1,0 +1,27 @@
+# .gitignore for ReclaimFocus Chrome Extension
+
+# Build artifacts
+build.*
+*.zip
+ReclaimFocus-extension.zip
+
+# Node modules (if added in future)
+node_modules/
+
+# IDE and editor files
+.vscode/
+.idea/
+*.sublime-project
+*.sublime-workspace
+
+# OS files
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# Logs
+*.log
+
+# Temporary files
+*.tmp
+*.temp
