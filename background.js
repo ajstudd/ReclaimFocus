@@ -16,11 +16,13 @@ const timerIntervals = new Map(); // domain -> setTimeout ID for cleanup
 // Restore timers and cooldowns on startup
 chrome.runtime.onStartup.addListener(async () => {
   await restoreTimersFromStorage();
+  await restoreScheduledTasks();
 });
 
 chrome.runtime.onInstalled.addListener(async () => {
   console.log('ReclaimFocus installed');
   await restoreTimersFromStorage();
+  await restoreScheduledTasks();
   
   const { blockedSites, blockedKeywords } = await chrome.storage.local.get(['blockedSites', 'blockedKeywords']);
   
@@ -645,5 +647,136 @@ chrome.tabs.onRemoved.addListener(async (tabId) => {
         clearTimerInterval(domain);
       }
     }
+  }
+});
+// ========== TASK SCHEDULING FUNCTIONS ==========
+
+// Restore scheduled tasks from storage and recreate alarms
+async function restoreScheduledTasks() {
+  try {
+    const { scheduledTasks } = await chrome.storage.local.get('scheduledTasks');
+    
+    if (scheduledTasks && scheduledTasks.length > 0) {
+      const now = new Date();
+      const activeTasks = [];
+      
+      for (const task of scheduledTasks) {
+        const scheduledDate = new Date(task.scheduledTime);
+        
+        // Remove past tasks
+        if (scheduledDate < now) {
+          console.log('Removing past task:', task.id);
+          continue;
+        }
+        
+        // Recreate alarm for future tasks
+        await scheduleTaskAlarm(task);
+        activeTasks.push(task);
+      }
+      
+      // Update storage to remove past tasks
+      if (activeTasks.length !== scheduledTasks.length) {
+        await chrome.storage.local.set({ scheduledTasks: activeTasks });
+      }
+    }
+  } catch (error) {
+    console.error('Error restoring scheduled tasks:', error);
+  }
+}
+
+// Create an alarm for a scheduled task
+async function scheduleTaskAlarm(task) {
+  try {
+    const scheduledDate = new Date(task.scheduledTime);
+    const now = new Date();
+    const delayInMinutes = (scheduledDate - now) / 60000;
+    
+    if (delayInMinutes > 0) {
+      await chrome.alarms.create(`task_${task.id}`, {
+        when: scheduledDate.getTime()
+      });
+      console.log(`Scheduled alarm for task ${task.id} at ${scheduledDate}`);
+    }
+  } catch (error) {
+    console.error('Error scheduling task alarm:', error);
+  }
+}
+
+// Cancel a task alarm
+async function cancelTaskAlarm(taskId) {
+  try {
+    await chrome.alarms.clear(`task_${taskId}`);
+    console.log(`Cancelled alarm for task ${taskId}`);
+  } catch (error) {
+    console.error('Error cancelling task alarm:', error);
+  }
+}
+
+// Handle alarm triggers
+chrome.alarms.onAlarm.addListener(async (alarm) => {
+  if (alarm.name.startsWith('task_')) {
+    const taskId = parseInt(alarm.name.replace('task_', ''));
+    await executeScheduledTask(taskId);
+  }
+});
+
+// Execute a scheduled task
+async function executeScheduledTask(taskId) {
+  try {
+    const { scheduledTasks } = await chrome.storage.local.get('scheduledTasks');
+    
+    if (!scheduledTasks) {
+      return;
+    }
+    
+    const taskIndex = scheduledTasks.findIndex(t => t.id === taskId);
+    
+    if (taskIndex === -1) {
+      console.log('Task not found:', taskId);
+      return;
+    }
+    
+    const task = scheduledTasks[taskIndex];
+    
+    // Show notification if enabled
+    if (task.showNotification) {
+      await chrome.notifications.create(`task_${taskId}`, {
+        type: 'basic',
+        iconUrl: 'icons/icon128.png',
+        title: 'ReclaimFocus - Scheduled Task',
+        message: `Opening: ${task.name}`,
+        priority: 2
+      });
+    }
+    
+    // Open the URL in a new active tab
+    await chrome.tabs.create({
+      url: task.url,
+      active: true
+    });
+    
+    console.log(`Executed task ${taskId}: ${task.url}`);
+    
+    // Remove the task from storage
+    scheduledTasks.splice(taskIndex, 1);
+    await chrome.storage.local.set({ scheduledTasks });
+    
+  } catch (error) {
+    console.error('Error executing scheduled task:', error);
+  }
+}
+
+// Handle messages from popup
+chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
+  if (message.action === 'scheduleTask') {
+    scheduleTaskAlarm(message.task)
+      .then(() => sendResponse({ success: true }))
+      .catch(error => sendResponse({ success: false, error: error.message }));
+    return true; // Keep channel open for async response
+  } else if (message.action === 'cancelTask') {
+    cancelTaskAlarm(message.taskId)
+      .then(() => sendResponse({ success: true }))
+      .catch(error => sendResponse({ success: false, error: error.message }));
+    return true;
   }
 });

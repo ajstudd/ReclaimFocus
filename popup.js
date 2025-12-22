@@ -4,12 +4,15 @@ let currentSettings = {
   timeLimitedSites: [],
   keywordSettings: { globalRedirect: 'about:newtab' },
   logs: [],
-  settings: { enabled: true, darkMode: false }
+  settings: { enabled: true, darkMode: false },
+  scheduledTasks: []
 };
 
 let editingIndex = null;
 let editingKeywordIndex = null;
 let editingTimeLimitIndex = null;
+let editingTaskIndex = null;
+let taskCountdownInterval = null;
 
 // Restore draft input fields from storage
 async function restoreInputFields() {
@@ -52,6 +55,24 @@ async function restoreInputFields() {
       if (draftInputs.timeLimitRedirect) {
         timeLimitRedirectInput.value = draftInputs.timeLimitRedirect;
       }
+      
+      const taskUrlInput = document.getElementById('taskUrl');
+      const taskTimeInput = document.getElementById('taskTime');
+      const taskNameInput = document.getElementById('taskName');
+      const taskNotificationCheckbox = document.getElementById('taskNotification');
+      
+      if (draftInputs.taskUrl) {
+        taskUrlInput.value = draftInputs.taskUrl;
+      }
+      if (draftInputs.taskTime) {
+        taskTimeInput.value = draftInputs.taskTime;
+      }
+      if (draftInputs.taskName) {
+        taskNameInput.value = draftInputs.taskName;
+      }
+      if (draftInputs.taskNotification !== undefined) {
+        taskNotificationCheckbox.checked = draftInputs.taskNotification;
+      }
     }
   } catch (error) {
     console.error('Error restoring input fields:', error);
@@ -69,6 +90,11 @@ async function saveInputDrafts() {
   const cooldownPeriodInput = document.getElementById('cooldownPeriod');
   const timeLimitRedirectInput = document.getElementById('timeLimitRedirect');
   
+  const taskUrlInput = document.getElementById('taskUrl');
+  const taskTimeInput = document.getElementById('taskTime');
+  const taskNameInput = document.getElementById('taskName');
+  const taskNotificationCheckbox = document.getElementById('taskNotification');
+  
   const drafts = {
     domain: domainInput.value,
     redirect: redirectInput.value,
@@ -77,7 +103,11 @@ async function saveInputDrafts() {
     timeDomain: timeDomainInput.value,
     timeLimit: timeLimitInput.value,
     cooldownPeriod: cooldownPeriodInput.value,
-    timeLimitRedirect: timeLimitRedirectInput.value
+    timeLimitRedirect: timeLimitRedirectInput.value,
+    taskUrl: taskUrlInput.value,
+    taskTime: taskTimeInput.value,
+    taskName: taskNameInput.value,
+    taskNotification: taskNotificationCheckbox.checked
   };
   
   await chrome.storage.local.set({ draftInputs: drafts });
@@ -88,11 +118,13 @@ document.addEventListener('DOMContentLoaded', async () => {
   await loadBlockedSites();
   await loadBlockedKeywords();
   await loadTimeLimitedSites();
+  await loadScheduledTasks();
   await loadLogs();
   await restoreInputFields();
   setupEventListeners();
   updateStats();
   startTimerUpdates();
+  startTaskCountdowns();
 });
 
 // Load settings from storage
@@ -103,6 +135,7 @@ async function loadSettings() {
       'blockedKeywords',
       'keywordSettings',
       'timeLimitedSites',
+      'scheduledTasks',
       'logs', 
       'settings', 
       'draftInputs'
@@ -112,6 +145,7 @@ async function loadSettings() {
       blockedKeywords: data.blockedKeywords || [],
       keywordSettings: data.keywordSettings || { globalRedirect: 'about:newtab' },
       timeLimitedSites: data.timeLimitedSites || [],
+      scheduledTasks: data.scheduledTasks || [],
       logs: data.logs || [],
       settings: data.settings || { enabled: true, darkMode: false }
     };
@@ -306,6 +340,15 @@ function setupEventListeners() {
     cancelTimeLimitEdit();
   });
   
+  document.getElementById('addTaskForm').addEventListener('submit', async (e) => {
+    e.preventDefault();
+    await addTask();
+  });
+  
+  document.getElementById('cancelTaskEdit').addEventListener('click', async () => {
+    await cancelTaskEdit();
+  });
+  
   document.getElementById('enableToggle').addEventListener('change', async (e) => {
     currentSettings.settings.enabled = e.target.checked;
     await chrome.storage.local.set({ settings: currentSettings.settings });
@@ -341,6 +384,16 @@ function setupEventListeners() {
   timeLimitInput.addEventListener('input', saveInputDrafts);
   cooldownPeriodInput.addEventListener('input', saveInputDrafts);
   timeLimitRedirectInput.addEventListener('input', saveInputDrafts);
+  
+  const taskUrlInput = document.getElementById('taskUrl');
+  const taskTimeInput = document.getElementById('taskTime');
+  const taskNameInput = document.getElementById('taskName');
+  const taskNotificationCheckbox = document.getElementById('taskNotification');
+  
+  taskUrlInput.addEventListener('input', saveInputDrafts);
+  taskTimeInput.addEventListener('input', saveInputDrafts);
+  taskNameInput.addEventListener('input', saveInputDrafts);
+  taskNotificationCheckbox.addEventListener('change', saveInputDrafts);
   
   document.getElementById('clearLogs').addEventListener('click', async () => {
     if (confirm('Are you sure you want to clear all logs?')) {
@@ -1050,4 +1103,259 @@ window.addEventListener('beforeunload', () => {
   if (timerUpdateInterval) {
     clearInterval(timerUpdateInterval);
   }
+  if (taskCountdownInterval) {
+    clearInterval(taskCountdownInterval);
+  }
 });
+
+// ========== TASK SCHEDULING FUNCTIONS ==========
+
+// Load and display scheduled tasks
+async function loadScheduledTasks() {
+  const container = document.getElementById('tasksList');
+  
+  if (!currentSettings.scheduledTasks || currentSettings.scheduledTasks.length === 0) {
+    container.innerHTML = '<p class="empty-state">No scheduled tasks yet. Create one above!</p>';
+    return;
+  }
+  
+  // Sort by scheduled time
+  const sortedTasks = [...currentSettings.scheduledTasks].sort((a, b) => 
+    new Date(a.scheduledTime) - new Date(b.scheduledTime)
+  );
+  
+  container.innerHTML = sortedTasks.map((task, index) => {
+    const scheduledDate = new Date(task.scheduledTime);
+    const now = new Date();
+    const isPast = scheduledDate < now;
+    const timeRemaining = getTimeRemaining(scheduledDate);
+    
+    return `
+      <div class="task-card">
+        <div class="task-info">
+          <div class="task-name">
+            ${task.name || 'Scheduled Task'}
+            ${isPast ? '<span class="task-badge past">PAST</span>' : '<span class="task-badge">SCHEDULED</span>'}
+          </div>
+          <div class="task-url">${task.url}</div>
+          <div class="task-time">
+            <span class="task-time-icon">⏰</span>
+            ${scheduledDate.toLocaleString()}
+            ${!isPast ? `<span class="task-countdown ${timeRemaining.urgent ? 'urgent' : ''}">(${timeRemaining.text})</span>` : ''}
+          </div>
+        </div>
+        <div class="task-actions">
+          <button class="btn btn-small btn-secondary edit-task-btn" data-index="${index}" title="Edit Task">✏️</button>
+          <button class="btn btn-small btn-danger remove-task-btn" data-index="${index}" title="Delete Task">🗑️</button>
+        </div>
+      </div>
+    `;
+  }).join('');
+  
+  // Attach event listeners
+  container.querySelectorAll('.edit-task-btn').forEach(button => {
+    button.addEventListener('click', () => {
+      const index = parseInt(button.dataset.index);
+      editTask(index);
+    });
+  });
+  
+  container.querySelectorAll('.remove-task-btn').forEach(button => {
+    button.addEventListener('click', () => {
+      const index = parseInt(button.dataset.index);
+      removeTask(index);
+    });
+  });
+}
+
+// Get time remaining until scheduled time
+function getTimeRemaining(scheduledDate) {
+  const now = new Date();
+  const diffMs = scheduledDate - now;
+  
+  if (diffMs < 0) {
+    return { text: 'Past', urgent: false };
+  }
+  
+  const diffMins = Math.floor(diffMs / 60000);
+  const diffHours = Math.floor(diffMins / 60);
+  const diffDays = Math.floor(diffHours / 24);
+  
+  let text;
+  let urgent = false;
+  
+  if (diffMins < 60) {
+    text = `in ${diffMins}m`;
+    urgent = diffMins < 15;
+  } else if (diffHours < 24) {
+    text = `in ${diffHours}h ${diffMins % 60}m`;
+    urgent = diffHours < 1;
+  } else {
+    text = `in ${diffDays}d ${diffHours % 24}h`;
+  }
+  
+  return { text, urgent };
+}
+
+// Add or update a scheduled task
+async function addTask() {
+  const urlInput = document.getElementById('taskUrl');
+  const timeInput = document.getElementById('taskTime');
+  const nameInput = document.getElementById('taskName');
+  const notificationCheckbox = document.getElementById('taskNotification');
+  
+  const url = urlInput.value.trim();
+  const scheduledTime = timeInput.value;
+  const name = nameInput.value.trim();
+  const showNotification = notificationCheckbox.checked;
+  
+  if (!url || !scheduledTime) {
+    showStatus('Please fill in URL and time', 'error');
+    return;
+  }
+  
+  // Validate URL
+  try {
+    new URL(url);
+  } catch (e) {
+    showStatus('Please enter a valid URL', 'error');
+    return;
+  }
+  
+  const scheduledDate = new Date(scheduledTime);
+  const now = new Date();
+  
+  if (scheduledDate < now) {
+    showStatus('Cannot schedule tasks in the past', 'error');
+    return;
+  }
+  
+  const task = {
+    id: editingTaskIndex !== null ? currentSettings.scheduledTasks[editingTaskIndex].id : Date.now(),
+    url,
+    scheduledTime: scheduledDate.toISOString(),
+    name: name || 'Scheduled Task',
+    showNotification,
+    createdAt: editingTaskIndex !== null ? currentSettings.scheduledTasks[editingTaskIndex].createdAt : new Date().toISOString()
+  };
+  
+  if (editingTaskIndex !== null) {
+    currentSettings.scheduledTasks[editingTaskIndex] = task;
+    showStatus('Task updated successfully', 'success');
+    editingTaskIndex = null;
+    document.getElementById('cancelTaskEdit').style.display = 'none';
+  } else {
+    currentSettings.scheduledTasks.push(task);
+    showStatus('Task scheduled successfully', 'success');
+  }
+  
+  await chrome.storage.local.set({ scheduledTasks: currentSettings.scheduledTasks });
+  
+  // Create or update the alarm
+  await chrome.runtime.sendMessage({ 
+    action: 'scheduleTask', 
+    task 
+  });
+  
+  // Clear form
+  urlInput.value = '';
+  timeInput.value = '';
+  nameInput.value = '';
+  notificationCheckbox.checked = true;
+  
+  // Clear draft inputs from storage
+  const { draftInputs } = await chrome.storage.local.get('draftInputs');
+  if (draftInputs) {
+    draftInputs.taskUrl = '';
+    draftInputs.taskTime = '';
+    draftInputs.taskName = '';
+    draftInputs.taskNotification = true;
+    await chrome.storage.local.set({ draftInputs });
+  }
+  
+  await loadScheduledTasks();
+}
+
+// Edit a scheduled task
+function editTask(index) {
+  const task = currentSettings.scheduledTasks[index];
+  
+  document.getElementById('taskUrl').value = task.url;
+  document.getElementById('taskName').value = task.name;
+  document.getElementById('taskNotification').checked = task.showNotification;
+  
+  // Convert ISO string to datetime-local format
+  const date = new Date(task.scheduledTime);
+  const localDateTime = new Date(date.getTime() - date.getTimezoneOffset() * 60000)
+    .toISOString()
+    .slice(0, 16);
+  document.getElementById('taskTime').value = localDateTime;
+  
+  editingTaskIndex = index;
+  document.getElementById('cancelTaskEdit').style.display = 'inline-block';
+  
+  // Switch to tasks tab and scroll to form
+  switchTab('tasks');
+  document.getElementById('addTaskForm').scrollIntoView({ behavior: 'smooth' });
+}
+
+// Cancel task editing
+async function cancelTaskEdit() {
+  editingTaskIndex = null;
+  document.getElementById('taskUrl').value = '';
+  document.getElementById('taskTime').value = '';
+  document.getElementById('taskName').value = '';
+  document.getElementById('taskNotification').checked = true;
+  document.getElementById('cancelTaskEdit').style.display = 'none';
+  
+  // Clear draft inputs from storage
+  const { draftInputs } = await chrome.storage.local.get('draftInputs');
+  if (draftInputs) {
+    draftInputs.taskUrl = '';
+    draftInputs.taskTime = '';
+    draftInputs.taskName = '';
+    draftInputs.taskNotification = true;
+    await chrome.storage.local.set({ draftInputs });
+  }
+}
+
+// Remove a scheduled task
+async function removeTask(index) {
+  if (!confirm('Are you sure you want to delete this task?')) {
+    return;
+  }
+  
+  const task = currentSettings.scheduledTasks[index];
+  
+  // Cancel the alarm
+  await chrome.runtime.sendMessage({ 
+    action: 'cancelTask', 
+    taskId: task.id 
+  });
+  
+  currentSettings.scheduledTasks.splice(index, 1);
+  await chrome.storage.local.set({ scheduledTasks: currentSettings.scheduledTasks });
+  
+  showStatus('Task deleted', 'success');
+  await loadScheduledTasks();
+  
+  if (editingTaskIndex === index) {
+    await cancelTaskEdit();
+  } else if (editingTaskIndex > index) {
+    editingTaskIndex--;
+  }
+}
+
+// Start countdown updates for tasks
+function startTaskCountdowns() {
+  if (taskCountdownInterval) {
+    clearInterval(taskCountdownInterval);
+  }
+  
+  taskCountdownInterval = setInterval(() => {
+    const countdowns = document.querySelectorAll('.task-countdown');
+    if (countdowns.length > 0) {
+      loadScheduledTasks();
+    }
+  }, 30000); // Update every 30 seconds
+}
