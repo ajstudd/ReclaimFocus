@@ -21,6 +21,7 @@ Click the link above to install the extension directly from the Chrome Web Store
 ## Features
 
 - **🧘 Zen Mode** - Immersive meditation environment with starry sky and ambient music
+- **Task Scheduling** - Schedule URLs to open automatically at specific times with notifications
 - Block distracting websites with custom redirect URLs
 - **Block search keywords** across all search engines
 - **Time-limited website access** with pause/resume and cooldown periods
@@ -55,6 +56,36 @@ Transform your browser into a peaceful sanctuary for meditation and mental clari
 5. Press **ESC** to exit when ready
 
 Perfect for meditation breaks, stress relief, or transitioning between tasks.
+
+## Task Scheduling
+
+Schedule URLs to automatically open at specific times - perfect for meeting reminders, study sessions, or scheduled work activities.
+
+### How to Schedule Tasks
+
+1. Go to the **Tasks** tab in the extension popup
+2. Enter the URL you want to open
+3. Select the date and time when it should open
+4. Optionally add a friendly task name
+5. Choose whether to show a notification
+6. Click "Schedule Task"
+
+### Task Features
+
+- **Live Countdown**: See exactly how much time until each task
+- **Visual Indicators**: Urgent tasks (< 1 hour) highlighted in red
+- **Notifications**: Optional notifications when tasks execute
+- **Edit & Delete**: Modify or remove scheduled tasks anytime
+- **Persistence**: Tasks survive browser restarts
+- **Auto-Cleanup**: Past tasks automatically removed
+
+### Example Use Cases
+
+- Meeting reminders (Zoom, Google Meet links)
+- Daily standup notifications
+- Study session reminders
+- Break time alerts
+- Deadline reminders
 
 ## Usage
 
@@ -141,6 +172,8 @@ Export your configuration as JSON from the Settings tab for backup or sharing. I
 - `tabs` - Tab management and redirection
 - `webNavigation` - URL monitoring
 - `declarativeNetRequest` - Request blocking
+- `alarms` - Task scheduling across browser sessions
+- `notifications` - Optional task notifications
 - `<all_urls>` - Universal website access
 
 **Storage**: Uses `chrome.storage.local` for all data persistence. Logs are limited to 1000 most recent attempts.

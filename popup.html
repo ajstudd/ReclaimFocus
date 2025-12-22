@@ -24,6 +24,7 @@
       <button class="tab-button active" data-tab="blocked-sites">Blocked Sites</button>
       <button class="tab-button" data-tab="blocked-keywords">Blocked Keywords</button>
       <button class="tab-button" data-tab="time-limited">Time Limited</button>
+      <button class="tab-button" data-tab="tasks">Tasks</button>
       <button class="tab-button" data-tab="logs">Activity Logs</button>
       <button class="tab-button" data-tab="settings">Settings</button>
     </div>
@@ -130,6 +131,42 @@
       <div class="section">
         <h2>Current Time-Limited Sites</h2>
         <div id="timeLimitedList" class="blocked-list"></div>
+      </div>
+    </div>
+
+    <div id="tasks" class="tab-content">
+      <div class="section">
+        <h2>Schedule a Task</h2>
+        <form id="addTaskForm">
+          <div class="form-group">
+            <label for="taskUrl">URL to Open:</label>
+            <input type="url" id="taskUrl" placeholder="https://www.example.com/meeting" required>
+            <small>The webpage that will open at the scheduled time</small>
+          </div>
+          <div class="form-group">
+            <label for="taskTime">Schedule Time:</label>
+            <input type="datetime-local" id="taskTime" required>
+            <small>When to open this URL</small>
+          </div>
+          <div class="form-group">
+            <label for="taskName">Task Name (optional):</label>
+            <input type="text" id="taskName" placeholder="Meeting reminder">
+            <small>A friendly name for this task</small>
+          </div>
+          <div class="form-group">
+            <label>
+              <input type="checkbox" id="taskNotification" checked>
+              Show notification when opening
+            </label>
+          </div>
+          <button type="submit" class="btn btn-primary">Schedule Task</button>
+          <button type="button" id="cancelTaskEdit" class="btn btn-secondary" style="display: none;">Cancel</button>
+        </form>
+      </div>
+
+      <div class="section">
+        <h2>Scheduled Tasks</h2>
+        <div id="tasksList" class="tasks-list"></div>
       </div>
     </div>
 
