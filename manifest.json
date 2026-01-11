@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "ReclaimFocus",
-  "version": "1.2.0",
+  "version": "1.2.1",
   "description": "Block distracting websites, schedule task reminders, time-limited access, keyword blocking, and zen meditation mode for better focus",
   "permissions": [
     "storage",

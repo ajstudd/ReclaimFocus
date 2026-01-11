@@ -170,6 +170,13 @@ input:checked + .slider:before {
   overflow-y: hidden;
   white-space: nowrap;
   -webkit-overflow-scrolling: touch;
+  cursor: grab;
+  user-select: none;
+}
+
+.tabs.dragging {
+  cursor: grabbing;
+  scroll-behavior: auto;
 }
 
 .tabs::-webkit-scrollbar {
