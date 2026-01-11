@@ -303,6 +303,50 @@ function updateStats() {
   document.getElementById('todayAttempts').textContent = todayAttempts;
 }
 
+// Setup drag-to-scroll functionality for tabs
+function setupTabsDragScroll() {
+  const tabsContainer = document.querySelector('.tabs');
+  let isDown = false;
+  let startX;
+  let scrollLeft;
+  let hasDragged = false;
+  
+  tabsContainer.addEventListener('mousedown', (e) => {
+    isDown = true;
+    hasDragged = false;
+    tabsContainer.classList.add('dragging');
+    startX = e.pageX - tabsContainer.offsetLeft;
+    scrollLeft = tabsContainer.scrollLeft;
+  });
+  
+  tabsContainer.addEventListener('mouseleave', () => {
+    isDown = false;
+    tabsContainer.classList.remove('dragging');
+  });
+  
+  tabsContainer.addEventListener('mouseup', () => {
+    isDown = false;
+    tabsContainer.classList.remove('dragging');
+  });
+  
+  tabsContainer.addEventListener('mousemove', (e) => {
+    if (!isDown) return;
+    e.preventDefault();
+    hasDragged = true;
+    const x = e.pageX - tabsContainer.offsetLeft;
+    const walk = (x - startX) * 2; // Multiply by 2 for faster scrolling
+    tabsContainer.scrollLeft = scrollLeft - walk;
+  });
+  
+  // Prevent tab switching if we dragged
+  tabsContainer.addEventListener('click', (e) => {
+    if (hasDragged && e.target.classList.contains('tab-button')) {
+      e.stopPropagation();
+      e.preventDefault();
+    }
+  }, true);
+}
+
 // Setup all event listeners for UI elements
 function setupEventListeners() {
   document.querySelectorAll('.tab-button').forEach(button => {
@@ -311,6 +355,9 @@ function setupEventListeners() {
       switchTab(tabName);
     });
   });
+  
+  // Setup drag-to-scroll for tabs
+  setupTabsDragScroll();
   
   document.getElementById('addSiteForm').addEventListener('submit', async (e) => {
     e.preventDefault();
