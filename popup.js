@@ -59,6 +59,8 @@ document.addEventListener('DOMContentLoaded', async () => {
   await loadTimeLimitedSites();
   await loadScheduledTasks();
   await loadLogs();
+  // Seed the global picker from saved settings BEFORE drafts apply so drafts can override
+  setRedirectInPicker('global', currentSettings.keywordSettings?.globalRedirect || 'about:newtab');
   await restoreInputFields();
   setupEventListeners();
   updateStats();
@@ -110,55 +112,113 @@ async function loadSettings() {
   }
 }
 
-// ========== RESTORE DRAFT INPUTS ==========
+// ========== DRAFT PERSISTENCE ==========
+// Drafts persist across popup open/close. They clear only on form submit or
+// explicit Cancel button click; not on accidental popup dismissal.
+
+const DRAFT_INPUT_IDS = [
+  'domain',
+  'keyword',
+  'timeDomain', 'timeLimit', 'cooldownPeriod', 'extraTime',
+  'taskName', 'taskTime', 'taskPriority', 'taskRecurrence',
+  'redirectName', 'redirectUrl'
+];
+const DRAFT_CHECKBOX_IDS = ['taskNotification'];
+const DRAFT_PICKERS = ['site', 'keyword', 'global', 'timeLimit', 'task'];
+
+const FORM_DRAFT_MAP = {
+  site:       { inputs: ['domain'],                                                          pickers: ['site']      },
+  keyword:    { inputs: ['keyword'],                                                         pickers: ['keyword']   },
+  global:     { inputs: [],                                                                  pickers: ['global']    },
+  timeLimit:  { inputs: ['timeDomain', 'timeLimit', 'cooldownPeriod', 'extraTime'],          pickers: ['timeLimit'] },
+  task:       { inputs: ['taskName', 'taskTime', 'taskPriority', 'taskRecurrence'],
+                checkboxes: ['taskNotification'],                                            pickers: ['task']      },
+  redirect:   { inputs: ['redirectName', 'redirectUrl'],                                     pickers: []            },
+};
+
+function readPickerState(name) {
+  const picker = getPicker(name);
+  if (!picker) return null;
+  return {
+    select: picker.querySelector('.rp-select')?.value || '',
+    customName: picker.querySelector('.rp-name')?.value || '',
+    customUrl:  picker.querySelector('.rp-url')?.value || ''
+  };
+}
+
+function applyPickerState(name, state) {
+  const picker = getPicker(name);
+  if (!picker || !state) return;
+  const select     = picker.querySelector('.rp-select');
+  const customWrap = picker.querySelector('.rp-custom');
+  const nameInput  = picker.querySelector('.rp-name');
+  const urlInput   = picker.querySelector('.rp-url');
+  if (state.select && Array.from(select.options).some(o => o.value === state.select)) {
+    select.value = state.select;
+  }
+  if (state.customName) nameInput.value = state.customName;
+  if (state.customUrl)  urlInput.value  = state.customUrl;
+  customWrap.hidden = select.value !== 'custom';
+}
+
 async function restoreInputFields() {
   try {
     const { draftInputs } = await chrome.storage.local.get('draftInputs');
     if (!draftInputs) return;
 
-    const fields = {
-      domain: draftInputs.domain,
-      keyword: draftInputs.keyword,
-      timeDomain: draftInputs.timeDomain,
-      timeLimit: draftInputs.timeLimit,
-      cooldownPeriod: draftInputs.cooldownPeriod,
-      taskTime: draftInputs.taskTime,
-      taskName: draftInputs.taskName
-    };
+    const inputs     = draftInputs.inputs     || {};
+    const checkboxes = draftInputs.checkboxes || {};
+    const pickers    = draftInputs.pickers    || {};
 
-    for (const [id, value] of Object.entries(fields)) {
-      if (value) {
-        const el = document.getElementById(id);
-        if (el) el.value = value;
-      }
+    for (const id of DRAFT_INPUT_IDS) {
+      const value = inputs[id];
+      if (value == null || value === '') continue;
+      const el = document.getElementById(id);
+      if (el) el.value = value;
     }
-
-    if (draftInputs.taskNotification !== undefined) {
-      document.getElementById('taskNotification').checked = draftInputs.taskNotification;
+    for (const id of DRAFT_CHECKBOX_IDS) {
+      if (typeof checkboxes[id] !== 'boolean') continue;
+      const el = document.getElementById(id);
+      if (el) el.checked = checkboxes[id];
+    }
+    for (const name of DRAFT_PICKERS) {
+      if (pickers[name]) applyPickerState(name, pickers[name]);
     }
   } catch (error) {
     console.error('Error restoring input fields:', error);
   }
 }
 
-// ========== SAVE DRAFTS ==========
 async function saveInputDrafts() {
-  const getValue = id => {
+  const inputs = {};
+  for (const id of DRAFT_INPUT_IDS) {
     const el = document.getElementById(id);
-    return el ? el.value : '';
-  };
+    if (el) inputs[id] = el.value;
+  }
+  const checkboxes = {};
+  for (const id of DRAFT_CHECKBOX_IDS) {
+    const el = document.getElementById(id);
+    if (el) checkboxes[id] = el.checked;
+  }
+  const pickers = {};
+  for (const name of DRAFT_PICKERS) {
+    const st = readPickerState(name);
+    if (st) pickers[name] = st;
+  }
+  await chrome.storage.local.set({ draftInputs: { inputs, checkboxes, pickers } });
+}
 
-  const drafts = {
-    domain: getValue('domain'),
-    keyword: getValue('keyword'),
-    timeDomain: getValue('timeDomain'),
-    timeLimit: getValue('timeLimit'),
-    cooldownPeriod: getValue('cooldownPeriod'),
-    taskTime: getValue('taskTime'),
-    taskName: getValue('taskName'),
-    taskNotification: document.getElementById('taskNotification')?.checked ?? true
-  };
-
+async function clearFormDrafts(formName) {
+  const spec = FORM_DRAFT_MAP[formName];
+  if (!spec) return;
+  const { draftInputs } = await chrome.storage.local.get('draftInputs');
+  const drafts = draftInputs || { inputs: {}, checkboxes: {}, pickers: {} };
+  drafts.inputs     = drafts.inputs     || {};
+  drafts.checkboxes = drafts.checkboxes || {};
+  drafts.pickers    = drafts.pickers    || {};
+  for (const id   of (spec.inputs     || [])) delete drafts.inputs[id];
+  for (const id   of (spec.checkboxes || [])) delete drafts.checkboxes[id];
+  for (const name of (spec.pickers    || [])) delete drafts.pickers[name];
   await chrome.storage.local.set({ draftInputs: drafts });
 }
 
@@ -183,10 +243,8 @@ function setupEventListeners() {
     });
   });
 
-  // Wire all redirect pickers
+  // Wire all redirect pickers (change handlers; values already applied from drafts/settings)
   initRedirectPickers();
-  // Seed the global picker from stored settings
-  setRedirectInPicker('global', currentSettings.keywordSettings.globalRedirect || 'about:newtab');
 
   // Domain autocomplete
   const domainInput = document.getElementById('domain');
@@ -339,16 +397,24 @@ function setupEventListeners() {
     if (e.target === aboutModal) aboutModal.style.display = 'none';
   });
 
-  // Draft saving on inputs
-  const draftInputIds = [
-    'domain', 'keyword', 'timeDomain', 'timeLimit',
-    'cooldownPeriod', 'taskTime', 'taskName'
-  ];
-  draftInputIds.forEach(id => {
+  // Draft persistence: save on every input/change across all forms
+  DRAFT_INPUT_IDS.forEach(id => {
     const el = document.getElementById(id);
-    if (el) el.addEventListener('input', saveInputDrafts);
+    if (!el) return;
+    el.addEventListener('input', saveInputDrafts);
+    el.addEventListener('change', saveInputDrafts);
   });
-  document.getElementById('taskNotification').addEventListener('change', saveInputDrafts);
+  DRAFT_CHECKBOX_IDS.forEach(id => {
+    const el = document.getElementById(id);
+    if (el) el.addEventListener('change', saveInputDrafts);
+  });
+  DRAFT_PICKERS.forEach(name => {
+    const picker = getPicker(name);
+    if (!picker) return;
+    picker.querySelector('.rp-select')?.addEventListener('change', saveInputDrafts);
+    picker.querySelector('.rp-name')?.addEventListener('input', saveInputDrafts);
+    picker.querySelector('.rp-url')?.addEventListener('input', saveInputDrafts);
+  });
 
   // Listen for extra time prompt from background
   chrome.runtime.onMessage.addListener((message) => {
@@ -735,6 +801,7 @@ function cancelRedirectEdit() {
   editingRedirectIndex = null;
   document.getElementById('redirectName').value = '';
   document.getElementById('redirectUrl').value = '';
+  clearFormDrafts('redirect');
   const submitBtn = document.querySelector('#addRedirectForm button[type="submit"]');
   submitBtn.innerHTML = `<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg> Add Redirect`;
   submitBtn.classList.replace('btn-warning', 'btn-primary');
@@ -801,6 +868,7 @@ async function addRedirectSite() {
 
     cancelRedirectEdit();
     await loadRedirectSites();
+    await clearFormDrafts('redirect');
     showStatus('Redirect updated', 'success');
     return;
   }
@@ -815,6 +883,7 @@ async function addRedirectSite() {
   nameInput.value = '';
   urlInput.value = '';
   await loadRedirectSites();
+  await clearFormDrafts('redirect');
   showStatus('Redirect added', 'success');
 }
 
@@ -850,6 +919,7 @@ async function addSite() {
     await chrome.storage.local.set({ blockedSites: currentSettings.blockedSites });
     await loadBlockedSites();
     cancelEdit();
+    await clearFormDrafts('site');
     chrome.runtime.sendMessage({ action: 'updateRules' });
     showStatus('Site updated', 'success');
   } else {
@@ -862,6 +932,7 @@ async function addSite() {
     await loadBlockedSites();
     domainInput.value = '';
     resetRedirectPicker('site');
+    await clearFormDrafts('site');
     chrome.runtime.sendMessage({ action: 'updateRules' });
     showStatus('Site added', 'success');
   }
@@ -894,6 +965,7 @@ function cancelEdit() {
   editingIndex = null;
   document.getElementById('domain').value = '';
   resetRedirectPicker('site');
+  clearFormDrafts('site');
   const submitBtn = document.querySelector('#addSiteForm button[type="submit"]');
   submitBtn.innerHTML = `<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg> Add Website`;
   submitBtn.classList.replace('btn-warning', 'btn-primary');
@@ -975,6 +1047,7 @@ async function addKeyword() {
 
   await chrome.storage.local.set({ blockedKeywords: currentSettings.blockedKeywords });
   await loadBlockedKeywords();
+  await clearFormDrafts('keyword');
 }
 
 function editKeyword(index) {
@@ -994,6 +1067,7 @@ function cancelKeywordEdit() {
   editingKeywordIndex = null;
   document.getElementById('keyword').value = '';
   resetRedirectPicker('keyword');
+  clearFormDrafts('keyword');
   const submitBtn = document.querySelector('#addKeywordForm button[type="submit"]');
   submitBtn.innerHTML = `<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg> Add Keyword`;
   submitBtn.classList.replace('btn-warning', 'btn-primary');
@@ -1019,6 +1093,7 @@ async function updateGlobalRedirect() {
   await chrome.storage.local.set({ keywordSettings: currentSettings.keywordSettings });
   // Re-render the global picker so a freshly-saved custom URL collapses back into the dropdown
   setRedirectInPicker('global', currentSettings.keywordSettings.globalRedirect);
+  await clearFormDrafts('global');
   showStatus('Global redirect updated', 'success');
 }
 
@@ -1125,6 +1200,7 @@ async function addTimeLimitSite() {
   document.getElementById('cooldownPeriod').value = '';
   document.getElementById('extraTime').value = '5';
   resetRedirectPicker('timeLimit');
+  await clearFormDrafts('timeLimit');
 }
 
 function editTimeLimitSite(index) {
@@ -1150,6 +1226,7 @@ function cancelTimeLimitEdit() {
   document.getElementById('cooldownPeriod').value = '';
   document.getElementById('extraTime').value = '5';
   resetRedirectPicker('timeLimit');
+  clearFormDrafts('timeLimit');
   const submitBtn = document.querySelector('#addTimeLimitForm button[type="submit"]');
   submitBtn.innerHTML = `<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg> Add Time Limit`;
   submitBtn.classList.replace('btn-warning', 'btn-primary');
@@ -1397,6 +1474,7 @@ async function addTask() {
   document.getElementById('taskNotification').checked = true;
   document.getElementById('taskPriority').value = 'medium';
   document.getElementById('taskRecurrence').value = 'none';
+  await clearFormDrafts('task');
 
   await loadScheduledTasks();
 }
@@ -1426,6 +1504,7 @@ async function cancelTaskEdit() {
   document.getElementById('taskPriority').value = 'medium';
   document.getElementById('taskRecurrence').value = 'none';
   document.getElementById('cancelTaskEdit').style.display = 'none';
+  await clearFormDrafts('task');
 }
 
 async function removeTask(index) {
