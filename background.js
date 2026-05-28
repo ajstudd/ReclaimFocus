@@ -2,12 +2,7 @@
 // ReclaimFocus v2.0 - Background Service Worker
 // ============================================
 
-const DEFAULT_BLOCKED_SITES = [
-  { domain: 'facebook.com', redirect: 'https://www.khanacademy.org' },
-  { domain: 'youtube.com', redirect: 'https://www.calm.com' },
-  { domain: 'twitter.com', redirect: 'https://www.duolingo.com' },
-  { domain: 'instagram.com', redirect: 'https://www.codecademy.com' }
-];
+const DEFAULT_BLOCKED_SITES = [];
 
 const DEFAULT_BLOCKED_KEYWORDS = [];
 const DEFAULT_TIME_LIMITED_SITES = [];
@@ -31,31 +26,21 @@ chrome.runtime.onInstalled.addListener(async () => {
   await restoreTimersFromStorage();
   await restoreScheduledTasks();
 
-  const { blockedSites, blockedKeywords } = await chrome.storage.local.get(['blockedSites', 'blockedKeywords']);
-
-  if (!blockedSites || blockedSites.length === 0) {
-    await chrome.storage.local.set({
-      blockedSites: DEFAULT_BLOCKED_SITES,
-      blockedKeywords: DEFAULT_BLOCKED_KEYWORDS,
-      timeLimitedSites: DEFAULT_TIME_LIMITED_SITES,
-      redirectSites: DEFAULT_REDIRECT_SITES,
-      keywordSettings: { globalRedirect: 'about:newtab' },
-      logs: [],
-      settings: { enabled: true, darkMode: false, deepKeywordScan: false }
-    });
-  } else if (!blockedKeywords) {
-    await chrome.storage.local.set({
-      blockedKeywords: DEFAULT_BLOCKED_KEYWORDS,
-      timeLimitedSites: DEFAULT_TIME_LIMITED_SITES,
-      redirectSites: DEFAULT_REDIRECT_SITES,
-      keywordSettings: { globalRedirect: 'about:newtab' }
-    });
-  } else {
-    // Backfill redirectSites for existing installs that pre-date this feature
-    const { redirectSites } = await chrome.storage.local.get('redirectSites');
-    if (!Array.isArray(redirectSites)) {
-      await chrome.storage.local.set({ redirectSites: DEFAULT_REDIRECT_SITES });
-    }
+  // Seed only the storage keys that don't already exist. Everything starts empty.
+  const data = await chrome.storage.local.get([
+    'blockedSites', 'blockedKeywords', 'timeLimitedSites', 'redirectSites',
+    'keywordSettings', 'logs', 'settings'
+  ]);
+  const seed = {};
+  if (!Array.isArray(data.blockedSites)) seed.blockedSites = [];
+  if (!Array.isArray(data.blockedKeywords)) seed.blockedKeywords = [];
+  if (!Array.isArray(data.timeLimitedSites)) seed.timeLimitedSites = [];
+  if (!Array.isArray(data.redirectSites)) seed.redirectSites = [];
+  if (!data.keywordSettings) seed.keywordSettings = { globalRedirect: 'about:newtab' };
+  if (!Array.isArray(data.logs)) seed.logs = [];
+  if (!data.settings) seed.settings = { enabled: true, darkMode: false, deepKeywordScan: false };
+  if (Object.keys(seed).length > 0) {
+    await chrome.storage.local.set(seed);
   }
 
   await updateBlockingRules();

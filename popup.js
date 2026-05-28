@@ -1572,24 +1572,19 @@ async function importSettings(event) {
 }
 
 async function resetToDefaults() {
-  const defaults = [
-    { domain: 'facebook.com', redirect: 'https://www.khanacademy.org' },
-    { domain: 'youtube.com', redirect: 'https://www.calm.com' },
-    { domain: 'twitter.com', redirect: 'https://www.duolingo.com' },
-    { domain: 'instagram.com', redirect: 'https://www.codecademy.com' }
-  ];
-  currentSettings.blockedSites = defaults;
+  currentSettings.blockedSites = [];
   currentSettings.blockedKeywords = [];
   currentSettings.keywordSettings = { globalRedirect: 'about:newtab' };
   currentSettings.timeLimitedSites = [];
-  currentSettings.redirectSites = [...DEFAULT_REDIRECT_SITES];
+  currentSettings.redirectSites = [];
+  currentSettings.scheduledTasks = [];
   currentSettings.settings = { enabled: true, darkMode: false, deepKeywordScan: false };
 
   await chrome.storage.local.set({
-    blockedSites: defaults, blockedKeywords: [], keywordSettings: { globalRedirect: 'about:newtab' },
-    timeLimitedSites: [], redirectSites: currentSettings.redirectSites, settings: currentSettings.settings
+    blockedSites: [], blockedKeywords: [], keywordSettings: { globalRedirect: 'about:newtab' },
+    timeLimitedSites: [], redirectSites: [], scheduledTasks: [], settings: currentSettings.settings
   });
-  await loadSettings(); await loadRedirectSites(); await loadBlockedSites(); await loadBlockedKeywords(); await loadTimeLimitedSites();
+  await loadSettings(); await loadRedirectSites(); await loadBlockedSites(); await loadBlockedKeywords(); await loadTimeLimitedSites(); await loadScheduledTasks();
   chrome.runtime.sendMessage({ action: 'updateRules' });
   showStatus('Reset to defaults', 'success');
 }
