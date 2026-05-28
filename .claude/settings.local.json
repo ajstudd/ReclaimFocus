@@ -1,0 +1,11 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(node *)",
+      "Bash(git -C \"/c/Users/j7654/WorkStation/ReclaimFocus\" log -1 --format=%H -- background.js)",
+      "Bash(git -C \"/c/Users/j7654/WorkStation/ReclaimFocus\" diff HEAD -- background.js)",
+      "Bash(xxd)",
+      "Bash(grep -nP '\\\\\\\\\\\\\\\\.\\\\\\\\\\\\\\\\.[a-z]' \"/c/Users/j7654/WorkStation/ReclaimFocus/background.js\")"
+    ]
+  }
+}

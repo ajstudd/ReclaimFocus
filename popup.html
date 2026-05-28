@@ -8,222 +8,551 @@
 </head>
 <body>
   <div class="container">
+    <!-- ========== HEADER ========== -->
     <header class="header">
-      <h1><img src="icons/icon48.png" alt="ReclaimFocus" class="header-icon"> ReclaimFocus</h1>
+      <h1>
+        <img src="icons/icon48.png" alt="ReclaimFocus" class="header-icon">
+        ReclaimFocus
+      </h1>
       <div class="header-controls">
         <label class="toggle-switch" title="Enable/Disable Extension">
           <input type="checkbox" id="enableToggle" checked>
           <span class="slider"></span>
         </label>
-        <button id="zenModeToggle" class="icon-button" title="Zen Mode">🧘</button>
-        <button id="themeToggle" class="icon-button" title="Toggle Dark Mode"></button>
+        <button id="zenModeToggle" class="icon-button" title="Zen Mode">
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"/><path d="M12 1C8 4 4 8 4 12a8 8 0 0 0 16 0c0-4-4-8-8-11z"/></svg>
+        </button>
+        <button id="themeToggle" class="icon-button" title="Toggle Dark Mode">
+          <span id="themeIcon" class="theme-icon-wrap"></span>
+        </button>
       </div>
     </header>
 
-    <div class="tabs">
-      <button class="tab-button active" data-tab="blocked-sites">Blocked Sites</button>
-      <button class="tab-button" data-tab="blocked-keywords">Blocked Keywords</button>
-      <button class="tab-button" data-tab="time-limited">Time Limited</button>
-      <button class="tab-button" data-tab="tasks">Tasks</button>
-      <button class="tab-button" data-tab="logs">Activity Logs</button>
-      <button class="tab-button" data-tab="settings">Settings</button>
-    </div>
+    <!-- ========== APP LAYOUT: SIDEBAR + CONTENT ========== -->
+    <div class="app-layout">
+      <!-- Sidebar Navigation -->
+      <nav class="sidebar" role="tablist">
+        <button class="nav-item active" data-tab="blocked-sites" role="tab" aria-selected="true" title="Blocked Sites">
+          <svg viewBox="0 0 24 24"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/></svg>
+          <span class="nav-tooltip">Blocked Sites</span>
+        </button>
+        <button class="nav-item" data-tab="blocked-keywords" role="tab" title="Keywords">
+          <svg viewBox="0 0 24 24"><path d="M21 2l-2 2m-7.61 7.61a5.5 5.5 0 1 1-7.78 7.78 5.5 5.5 0 0 1 7.78-7.78zm0 0L15.5 7.5m0 0l3 3L22 7l-3-3m-3.5 3.5L19 4"/></svg>
+          <span class="nav-tooltip">Keywords</span>
+        </button>
+        <button class="nav-item" data-tab="time-limited" role="tab" title="Time Limited">
+          <svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>
+          <span class="nav-tooltip">Time Limited</span>
+        </button>
+        <button class="nav-item" data-tab="redirects" role="tab" title="Redirects">
+          <svg viewBox="0 0 24 24"><polyline points="15 10 20 15 15 20"/><path d="M4 4v7a4 4 0 0 0 4 4h12"/></svg>
+          <span class="nav-tooltip">Redirects</span>
+        </button>
+        <button class="nav-item" data-tab="tasks" role="tab" title="Tasks">
+          <svg viewBox="0 0 24 24"><path d="M16 4h2a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2h2"/><rect x="8" y="2" width="8" height="4" rx="1" ry="1"/><line x1="8" y1="12" x2="16" y2="12"/><line x1="8" y1="16" x2="16" y2="16"/></svg>
+          <span class="nav-tooltip">Tasks</span>
+        </button>
+        <button class="nav-item" data-tab="logs" role="tab" title="Activity">
+          <svg viewBox="0 0 24 24"><line x1="18" y1="20" x2="18" y2="10"/><line x1="12" y1="20" x2="12" y2="4"/><line x1="6" y1="20" x2="6" y2="14"/></svg>
+          <span class="nav-tooltip">Activity</span>
+        </button>
+        <button class="nav-item" data-tab="settings" role="tab" title="Settings">
+          <svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06A1.65 1.65 0 0 0 4.68 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06A1.65 1.65 0 0 0 9 4.68a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06A1.65 1.65 0 0 0 19.4 9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg>
+          <span class="nav-tooltip">Settings</span>
+        </button>
+      </nav>
 
-    <div id="blocked-sites" class="tab-content active">
-      <div class="section">
-        <h2>Add Blocked Website</h2>
-        <form id="addSiteForm">
-          <div class="form-group">
-            <label for="domain">Domain (e.g., facebook.com):</label>
-            <input type="text" id="domain" placeholder="example.com" required>
-          </div>
-          <div class="form-group">
-            <label for="redirect">Redirect URL:</label>
-            <input type="url" id="redirect" placeholder="https://www.khanacademy.org" required>
-          </div>
-          <button type="submit" class="btn btn-primary">Add Website</button>
-        </form>
-      </div>
+      <!-- Main Content -->
+      <div class="main-content">
 
-      <div class="section">
-        <h2>Current Blocked Sites</h2>
-        <div id="blockedList" class="blocked-list"></div>
-      </div>
-    </div>
-
-    <div id="blocked-keywords" class="tab-content">
-      <div class="section">
-        <h2>Add Blocked Keyword</h2>
-        <form id="addKeywordForm">
-          <div class="form-group">
-            <label for="keyword">Keyword (e.g., gaming, celebrity):</label>
-            <input type="text" id="keyword" placeholder="Enter keyword to block" required>
+        <!-- ========== TAB: BLOCKED SITES ========== -->
+        <div id="blocked-sites" class="tab-content active">
+          <div class="section">
+            <button type="button" id="blockCurrentSite" class="btn btn-block-current">
+              <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/><line x1="12" y1="9" x2="12" y2="13"/><line x1="10" y1="11" x2="14" y2="11"/></svg>
+              Block This Site
+            </button>
           </div>
-          <div class="form-group">
-            <label for="keywordRedirect">Redirect URL (optional):</label>
-            <input type="url" id="keywordRedirect" placeholder="Leave empty for global redirect">
-            <small>If empty, uses global redirect below</small>
-          </div>
-          <button type="submit" class="btn btn-primary">Add Keyword</button>
-          <button type="button" id="cancelKeywordEdit" class="btn btn-secondary" style="display: none;">Cancel</button>
-        </form>
-      </div>
 
-      <div class="section">
-        <h2>Global Keyword Redirect</h2>
-        <form id="globalRedirectForm">
-          <div class="form-group">
-            <label for="globalRedirect">Default redirect for keywords without specific redirect:</label>
-            <input type="text" id="globalRedirect" placeholder="about:newtab" value="about:newtab">
-            <small>Default: about:newtab (homepage). You can use any URL like https://www.example.com</small>
+          <div class="section">
+            <h2>Add Blocked Website</h2>
+            <form id="addSiteForm">
+              <div class="form-group" style="position:relative;">
+                <label for="domain">Domain</label>
+                <div class="domain-input-row">
+                  <input type="text" id="domain" placeholder="e.g., facebook.com" required autocomplete="off">
+                  <button type="button" class="tab-picker-btn" data-target="domain" title="Pick from open tabs">
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="18" height="18" rx="2" ry="2"/><line x1="3" y1="9" x2="21" y2="9"/></svg>
+                    Tabs
+                  </button>
+                </div>
+                <div id="domainAutocomplete" class="autocomplete-dropdown"></div>
+                <div id="domainTabPicker" class="tab-picker-dropdown" data-target="domain"></div>
+              </div>
+              <div class="form-group">
+                <label>Redirect To</label>
+                <div class="redirect-picker" data-picker="site">
+                  <select class="rp-select"></select>
+                  <div class="rp-custom" hidden>
+                    <input type="text" class="rp-name" placeholder="Name (optional)" autocomplete="off">
+                    <input type="url" class="rp-url" placeholder="https://example.com">
+                  </div>
+                </div>
+                <small class="redirect-manage-hint">New custom URLs are saved automatically to the <a href="#" class="go-to-redirects-tab">Redirects</a> tab.</small>
+              </div>
+              <button type="submit" class="btn btn-primary">
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
+                Add Website
+              </button>
+            </form>
           </div>
-          <button type="submit" class="btn btn-primary">Update Global Redirect</button>
-        </form>
-      </div>
 
-      <div class="section">
-        <h2>Current Blocked Keywords</h2>
-        <div id="keywordList" class="blocked-list"></div>
-      </div>
-    </div>
-
-    <div id="time-limited" class="tab-content">
-      <div id="activeTimerCard" class="section" style="display: none; background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); color: white; border-radius: 8px; padding: 15px; margin-bottom: 15px;">
-        <div style="display: flex; justify-content: space-between; align-items: center;">
-          <div>
-            <div style="font-size: 12px; opacity: 0.9; margin-bottom: 4px;">Active Timer</div>
-            <div id="timerDomain" style="font-weight: 600; font-size: 14px; margin-bottom: 8px;">example.com</div>
-            <div id="timerDisplay" style="font-size: 28px; font-weight: 700; letter-spacing: 1px;">--:--</div>
-          </div>
-          <div id="timerStatus" style="font-size: 12px; opacity: 0.9; text-align: right;">
-            <div id="timerStatusText">Active</div>
+          <div class="section">
+            <div class="section-header">
+              <h2>Blocked Sites</h2>
+            </div>
+            <div class="filter-bar">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
+              <input type="search" id="siteFilter" placeholder="Filter sites... (Ctrl+K)">
+            </div>
+            <div id="blockedList" class="blocked-list"></div>
           </div>
         </div>
-      </div>
-      
-      <div class="section">
-        <h2>Add Time-Limited Site</h2>
-        <form id="addTimeLimitForm">
-          <div class="form-group">
-            <label for="timeDomain">Domain (e.g., twitter.com):</label>
-            <input type="text" id="timeDomain" placeholder="example.com" required>
-          </div>
-          <div class="form-group">
-            <label for="timeLimit">Time Limit (minutes):</label>
-            <input type="number" id="timeLimit" placeholder="30" min="1" required>
-            <small>How long you can access this site before being redirected</small>
-          </div>
-          <div class="form-group">
-            <label for="cooldownPeriod">Cooldown Period (minutes):</label>
-            <input type="number" id="cooldownPeriod" placeholder="60" min="1" required>
-            <small>How long before you can access this site again</small>
-          </div>
-          <div class="form-group">
-            <label for="timeLimitRedirect">Redirect URL (optional):</label>
-            <input type="url" id="timeLimitRedirect" placeholder="about:newtab">
-            <small>Where to redirect after time expires (default: homepage)</small>
-          </div>
-          <button type="submit" class="btn btn-primary">Add Time Limit</button>
-          <button type="button" id="cancelTimeLimitEdit" class="btn btn-secondary" style="display: none;">Cancel</button>
-        </form>
-      </div>
 
-      <div class="section">
-        <h2>Current Time-Limited Sites</h2>
-        <div id="timeLimitedList" class="blocked-list"></div>
+        <!-- ========== TAB: BLOCKED KEYWORDS ========== -->
+        <div id="blocked-keywords" class="tab-content">
+          <div class="section">
+            <h2>Add Blocked Keyword</h2>
+            <form id="addKeywordForm">
+              <div class="form-group">
+                <label for="keyword">Keyword</label>
+                <input type="text" id="keyword" placeholder="e.g., gaming, celebrity" required>
+              </div>
+              <div class="form-group">
+                <label>Redirect To <span class="label-optional">(optional)</span></label>
+                <div class="redirect-picker" data-picker="keyword" data-allow-empty="true">
+                  <select class="rp-select"></select>
+                  <div class="rp-custom" hidden>
+                    <input type="text" class="rp-name" placeholder="Name (optional)" autocomplete="off">
+                    <input type="url" class="rp-url" placeholder="https://example.com">
+                  </div>
+                </div>
+                <small>Leave on "Use global redirect" to fall back to the default below.</small>
+              </div>
+              <button type="submit" class="btn btn-primary">
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
+                Add Keyword
+              </button>
+              <button type="button" id="cancelKeywordEdit" class="btn btn-secondary" style="display: none;">Cancel</button>
+            </form>
+          </div>
+
+          <div class="section">
+            <h2>Global Keyword Redirect</h2>
+            <form id="globalRedirectForm">
+              <div class="form-group">
+                <label>Default redirect for keywords without specific redirect</label>
+                <div class="redirect-picker" data-picker="global">
+                  <select class="rp-select"></select>
+                  <div class="rp-custom" hidden>
+                    <input type="text" class="rp-name" placeholder="Name (optional)" autocomplete="off">
+                    <input type="url" class="rp-url" placeholder="https://example.com">
+                  </div>
+                </div>
+              </div>
+              <button type="submit" class="btn btn-primary">Update Global Redirect</button>
+            </form>
+          </div>
+
+          <div class="section">
+            <h2>Current Blocked Keywords</h2>
+            <div id="keywordList" class="blocked-list"></div>
+          </div>
+        </div>
+
+        <!-- ========== TAB: TIME LIMITED ========== -->
+        <div id="time-limited" class="tab-content">
+          <!-- Active Timer Card -->
+          <div id="activeTimerCard" class="timer-card timer-card--active" style="display: none;">
+            <div class="timer-card-layout">
+              <div>
+                <div class="timer-label">Active Timer</div>
+                <div class="timer-domain" id="timerDomain">example.com</div>
+                <div class="timer-display" id="timerDisplay">--:--</div>
+              </div>
+              <div>
+                <svg class="timer-ring" viewBox="0 0 72 72">
+                  <circle class="ring-bg" cx="36" cy="36" r="30"/>
+                  <circle class="ring-progress" id="timerRingProgress" cx="36" cy="36" r="30" stroke-dasharray="188.5" stroke-dashoffset="0"/>
+                </svg>
+              </div>
+            </div>
+            <div class="timer-status" id="timerStatusText">Active</div>
+          </div>
+
+          <!-- Cooldown Bar -->
+          <div id="cooldownBar" class="cooldown-bar" style="display: none;">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="11" width="18" height="11" rx="2" ry="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/></svg>
+            <div class="cooldown-info">
+              <div class="cooldown-label">Cooldown Active</div>
+              <div class="cooldown-remaining" id="cooldownRemaining">--:--</div>
+              <div class="cooldown-progress">
+                <div class="cooldown-progress-fill" id="cooldownProgressFill"></div>
+              </div>
+            </div>
+          </div>
+
+          <div class="section">
+            <h2>Add Time-Limited Site</h2>
+            <!-- Cycle Diagram -->
+            <div class="time-cycle-diagram">
+              <span class="time-cycle-step time-cycle-step--browse">
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>
+                Browse
+              </span>
+              <span class="time-cycle-arrow">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="9 18 15 12 9 6"/></svg>
+              </span>
+              <span class="time-cycle-step time-cycle-step--cooldown">
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="11" width="18" height="11" rx="2" ry="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/></svg>
+                Cooldown
+              </span>
+              <span class="time-cycle-arrow">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="9 18 15 12 9 6"/></svg>
+              </span>
+              <span class="time-cycle-step time-cycle-step--browse">
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="23 4 23 10 17 10"/><polyline points="1 20 1 14 7 14"/><path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15"/></svg>
+                Repeat
+              </span>
+            </div>
+            <form id="addTimeLimitForm">
+              <div class="form-group" style="position:relative;">
+                <label for="timeDomain">Domain</label>
+                <div class="domain-input-row">
+                  <input type="text" id="timeDomain" placeholder="e.g., twitter.com" required>
+                  <button type="button" class="tab-picker-btn" data-target="timeDomain" title="Pick from open tabs">
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="18" height="18" rx="2" ry="2"/><line x1="3" y1="9" x2="21" y2="9"/></svg>
+                    Tabs
+                  </button>
+                </div>
+                <div id="timeDomainTabPicker" class="tab-picker-dropdown" data-target="timeDomain"></div>
+              </div>
+              <div class="form-row">
+                <div class="form-group form-half">
+                  <label for="timeLimit">Time Limit (min)</label>
+                  <input type="number" id="timeLimit" placeholder="30" min="1" required>
+                  <small>How long you can browse</small>
+                </div>
+                <div class="form-group form-half">
+                  <label for="cooldownPeriod">Cooldown (min)</label>
+                  <input type="number" id="cooldownPeriod" placeholder="60" min="1" required>
+                  <small>Wait time after expiry</small>
+                </div>
+              </div>
+              <div class="form-group">
+                <label for="extraTime">Extra Time Window (min)</label>
+                <input type="number" id="extraTime" placeholder="5" min="1" value="5">
+                <small>One-time extension before cooldown (granted once per session)</small>
+              </div>
+              <div class="form-group">
+                <label>Redirect To</label>
+                <div class="redirect-picker" data-picker="timeLimit">
+                  <select class="rp-select"></select>
+                  <div class="rp-custom" hidden>
+                    <input type="text" class="rp-name" placeholder="Name (optional)" autocomplete="off">
+                    <input type="url" class="rp-url" placeholder="https://example.com">
+                  </div>
+                </div>
+                <small>Where to send you after the time runs out.</small>
+              </div>
+              <button type="submit" class="btn btn-primary">
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
+                Add Time Limit
+              </button>
+              <button type="button" id="cancelTimeLimitEdit" class="btn btn-secondary" style="display: none;">Cancel</button>
+            </form>
+          </div>
+
+          <div class="section">
+            <h2>Current Time-Limited Sites</h2>
+            <div id="timeLimitedList" class="blocked-list"></div>
+          </div>
+        </div>
+
+        <!-- ========== TAB: REDIRECTS ========== -->
+        <div id="redirects" class="tab-content">
+          <div class="section">
+            <h2>Add Redirect Destination</h2>
+            <p class="section-hint">Sites you'd rather visit. These appear in the "Redirect To" dropdown when blocking a site.</p>
+            <form id="addRedirectForm">
+              <div class="form-group">
+                <label for="redirectName">Name <span class="label-optional">(optional)</span></label>
+                <input type="text" id="redirectName" placeholder="e.g., Khan Academy" autocomplete="off">
+              </div>
+              <div class="form-group">
+                <label for="redirectUrl">URL</label>
+                <input type="url" id="redirectUrl" placeholder="https://example.com" required>
+              </div>
+              <button type="submit" class="btn btn-primary">
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
+                Add Redirect
+              </button>
+              <button type="button" id="cancelRedirectEdit" class="btn btn-secondary" style="display: none;">Cancel</button>
+            </form>
+          </div>
+
+          <div class="section">
+            <h2>Saved Redirects</h2>
+            <div id="redirectList" class="blocked-list"></div>
+          </div>
+        </div>
+
+        <!-- ========== TAB: TASKS ========== -->
+        <div id="tasks" class="tab-content">
+          <div class="section">
+            <h2>Schedule a Task</h2>
+            <form id="addTaskForm">
+              <div class="form-group">
+                <label for="taskName">Task Name</label>
+                <input type="text" id="taskName" placeholder="e.g., Team standup" required>
+              </div>
+              <div class="form-group">
+                <label>URL to Open <span class="label-optional">(optional)</span></label>
+                <div class="redirect-picker" data-picker="task" data-allow-empty="true" data-empty-label="No URL (reminder only)">
+                  <select class="rp-select"></select>
+                  <div class="rp-custom" hidden>
+                    <input type="text" class="rp-name" placeholder="Name (optional)" autocomplete="off">
+                    <input type="url" class="rp-url" placeholder="https://example.com">
+                  </div>
+                </div>
+                <small>Pick a saved destination or add a new one. Leave on "No URL" for a reminder-only task.</small>
+              </div>
+              <div class="form-group">
+                <label for="taskTime">When</label>
+                <input type="datetime-local" id="taskTime" required>
+              </div>
+              <div class="form-row">
+                <div class="form-group form-half">
+                  <label for="taskPriority">Priority</label>
+                  <select id="taskPriority">
+                    <option value="low">Low</option>
+                    <option value="medium" selected>Medium</option>
+                    <option value="high">High</option>
+                  </select>
+                </div>
+                <div class="form-group form-half">
+                  <label for="taskRecurrence">Repeat</label>
+                  <select id="taskRecurrence">
+                    <option value="none">None</option>
+                    <option value="daily">Daily</option>
+                    <option value="weekdays">Weekdays</option>
+                    <option value="weekly">Weekly</option>
+                  </select>
+                </div>
+              </div>
+              <div class="form-group">
+                <label>
+                  <input type="checkbox" id="taskNotification" checked>
+                  Show notification when opening
+                </label>
+              </div>
+              <button type="submit" class="btn btn-primary">
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
+                Schedule Task
+              </button>
+              <button type="button" id="cancelTaskEdit" class="btn btn-secondary" style="display: none;">Cancel</button>
+            </form>
+          </div>
+
+          <div class="section">
+            <h2>Scheduled Tasks</h2>
+            <div id="tasksList" class="tasks-list"></div>
+          </div>
+        </div>
+
+        <!-- ========== TAB: ACTIVITY LOGS ========== -->
+        <div id="logs" class="tab-content">
+          <div class="section">
+            <div class="section-header">
+              <h2>Activity Logs</h2>
+              <div>
+                <button id="exportLogs" class="btn btn-secondary btn-small">
+                  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
+                  Export
+                </button>
+                <button id="clearLogs" class="btn btn-danger btn-small">
+                  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/></svg>
+                  Clear All
+                </button>
+              </div>
+            </div>
+            <div class="stats">
+              <div class="stat-card">
+                <div class="stat-value" id="totalAttempts">0</div>
+                <div class="stat-label">Total Blocked</div>
+              </div>
+              <div class="stat-card">
+                <div class="stat-value" id="todayAttempts">0</div>
+                <div class="stat-label">Today</div>
+              </div>
+            </div>
+            <div id="logsList" class="logs-list"></div>
+          </div>
+        </div>
+
+        <!-- ========== TAB: SETTINGS ========== -->
+        <div id="settings" class="tab-content">
+          <div class="section">
+            <h2>Settings</h2>
+
+            <div class="setting-item">
+              <div>
+                <h3>Deep Keyword Scanning</h3>
+                <p>Scan page content for blocked keywords (may affect performance)</p>
+              </div>
+              <label class="toggle-switch">
+                <input type="checkbox" id="deepKeywordScan">
+                <span class="slider"></span>
+              </label>
+            </div>
+
+            <div class="setting-item">
+              <div>
+                <h3>Export Configuration</h3>
+                <p>Export blocked sites and settings as JSON</p>
+              </div>
+              <button id="exportSettings" class="btn btn-secondary btn-small">
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
+                Export
+              </button>
+            </div>
+
+            <div class="setting-item">
+              <div>
+                <h3>Import Configuration</h3>
+                <p>Import previously exported settings</p>
+              </div>
+              <button id="importSettings" class="btn btn-secondary btn-small">
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></svg>
+                Import
+              </button>
+              <input type="file" id="importFile" accept=".json" style="display: none;">
+            </div>
+
+            <div class="setting-item">
+              <div>
+                <h3>Reset to Defaults</h3>
+                <p>Restore default blocked sites and settings</p>
+              </div>
+              <button id="resetSettings" class="btn btn-danger btn-small">
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="1 4 1 10 7 10"/><path d="M3.51 15a9 9 0 1 0 2.13-9.36L1 10"/></svg>
+                Reset
+              </button>
+            </div>
+
+            <div class="setting-item">
+              <div>
+                <h3>About ReclaimFocus</h3>
+                <p>Learn what this extension stands for</p>
+              </div>
+              <button id="openAbout" class="btn btn-secondary btn-small">
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><line x1="12" y1="16" x2="12" y2="12"/><line x1="12" y1="8" x2="12.01" y2="8"/></svg>
+                About
+              </button>
+            </div>
+
+            <div class="setting-item setting-item--version">
+              <div>
+                <h3>Version</h3>
+                <p id="versionLabel">...</p>
+              </div>
+            </div>
+          </div>
+        </div>
+
+      </div><!-- /main-content -->
+    </div><!-- /app-layout -->
+
+    <!-- ========== EXTRA TIME MODAL ========== -->
+    <div class="modal-overlay" id="extraTimeModal" style="display:none;">
+      <div class="modal-card">
+        <div class="modal-icon">
+          <svg width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>
+        </div>
+        <h3>Time's Almost Up!</h3>
+        <p>Your time on <strong id="extraTimeDomain"></strong> is about to expire.</p>
+        <p class="modal-detail">You have one extra time extension available.</p>
+        <div class="modal-actions">
+          <button class="btn btn-primary" id="grantExtraTime">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="16"/><line x1="8" y1="12" x2="16" y2="12"/></svg>
+            Grant +<span id="extraTimeAmount">5</span> Minutes
+          </button>
+          <button class="btn btn-secondary" id="denyExtraTime">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="11" width="18" height="11" rx="2" ry="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/></svg>
+            No Thanks, Lock It
+          </button>
+        </div>
+        <p class="modal-warning">
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"/><line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/></svg>
+          One-time extension. After this, you must wait for cooldown.
+        </p>
       </div>
     </div>
 
-    <div id="tasks" class="tab-content">
-      <div class="section">
-        <h2>Schedule a Task</h2>
-        <form id="addTaskForm">
-          <div class="form-group">
-            <label for="taskUrl">URL to Open:</label>
-            <input type="url" id="taskUrl" placeholder="https://www.example.com/meeting" required>
-            <small>The webpage that will open at the scheduled time</small>
-          </div>
-          <div class="form-group">
-            <label for="taskTime">Schedule Time:</label>
-            <input type="datetime-local" id="taskTime" required>
-            <small>When to open this URL</small>
-          </div>
-          <div class="form-group">
-            <label for="taskName">Task Name (optional):</label>
-            <input type="text" id="taskName" placeholder="Meeting reminder">
-            <small>A friendly name for this task</small>
-          </div>
-          <div class="form-group">
-            <label>
-              <input type="checkbox" id="taskNotification" checked>
-              Show notification when opening
-            </label>
-          </div>
-          <button type="submit" class="btn btn-primary">Schedule Task</button>
-          <button type="button" id="cancelTaskEdit" class="btn btn-secondary" style="display: none;">Cancel</button>
-        </form>
-      </div>
-
-      <div class="section">
-        <h2>Scheduled Tasks</h2>
-        <div id="tasksList" class="tasks-list"></div>
-      </div>
-    </div>
-
-    <div id="logs" class="tab-content">
-      <div class="section">
-        <div class="section-header">
-          <h2>Activity Logs</h2>
-          <div>
-            <button id="exportLogs" class="btn btn-secondary">Export</button>
-            <button id="clearLogs" class="btn btn-danger">Clear All</button>
-          </div>
+    <!-- ========== ABOUT MODAL ========== -->
+    <div class="modal-overlay" id="aboutModal" style="display:none;">
+      <div class="modal-card modal-card--about">
+        <button type="button" class="modal-close" id="closeAbout" aria-label="Close">
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
+        </button>
+        <div class="about-logo">
+          <img src="icons/icon128.png" alt="ReclaimFocus">
         </div>
-        <div class="stats">
-          <div class="stat-card">
-            <div class="stat-value" id="totalAttempts">0</div>
-            <div class="stat-label">Total Attempts</div>
-          </div>
-          <div class="stat-card">
-            <div class="stat-value" id="todayAttempts">0</div>
-            <div class="stat-label">Today</div>
-          </div>
-        </div>
-        <div id="logsList" class="logs-list"></div>
-      </div>
-    </div>
+        <h3>ReclaimFocus</h3>
+        <p class="about-tagline">Build a system that keeps you focused, disciplined, and in control of your time.</p>
 
-    <div id="settings" class="tab-content">
-      <div class="section">
-        <h2>Settings</h2>
-        
-        <div class="setting-item">
-          <div>
-            <h3>Export Configuration</h3>
-            <p>Export blocked sites and settings as JSON</p>
-          </div>
-          <button id="exportSettings" class="btn btn-secondary">Export</button>
+        <div class="about-body">
+          <p>
+            ReclaimFocus exists to help you reach your peak potential. The web rewards
+            attention with novelty. This extension is a quiet system that returns
+            attention to <em>you</em>: block what pulls you off course, cap the time
+            you give to distractions, and schedule what matters so it actually happens.
+          </p>
+          <p>
+            Discipline is not punishment. It is the design of an environment where
+            doing the right thing is the easiest thing. Every feature here exists for
+            that reason: blocked sites that redirect to somewhere meaningful,
+            time-limited browsing with honest cooldowns, keyword filters, and task
+            reminders that nudge you toward your day.
+          </p>
+          <p>
+            <strong>Your data stays yours.</strong> Everything ReclaimFocus tracks
+            lives only in your browser. There are no accounts, no servers, no
+            analytics, and no third parties. Export your config, import it, reset it,
+            or wipe it. The controls are entirely in your hands.
+          </p>
         </div>
 
-        <div class="setting-item">
-          <div>
-            <h3>Import Configuration</h3>
-            <p>Import previously exported settings</p>
-          </div>
-          <button id="importSettings" class="btn btn-secondary">Import</button>
-          <input type="file" id="importFile" accept=".json" style="display: none;">
+        <div class="about-links">
+          <a href="https://github.com/ajstudd" target="_blank" rel="noopener noreferrer" class="about-link">
+            <svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M12 .5C5.65.5.5 5.65.5 12c0 5.08 3.29 9.39 7.86 10.91.57.1.78-.25.78-.55v-1.92c-3.2.69-3.88-1.54-3.88-1.54-.52-1.32-1.28-1.67-1.28-1.67-1.05-.71.08-.7.08-.7 1.16.08 1.77 1.19 1.77 1.19 1.03 1.77 2.71 1.26 3.37.96.1-.75.4-1.26.73-1.55-2.55-.29-5.24-1.28-5.24-5.7 0-1.26.45-2.29 1.19-3.1-.12-.29-.51-1.46.11-3.05 0 0 .97-.31 3.18 1.18a11.1 11.1 0 0 1 5.8 0c2.2-1.49 3.17-1.18 3.17-1.18.62 1.59.23 2.76.11 3.05.74.81 1.18 1.84 1.18 3.1 0 4.43-2.7 5.41-5.26 5.69.41.36.78 1.06.78 2.14v3.17c0 .31.21.66.79.55C20.21 21.38 23.5 17.08 23.5 12 23.5 5.65 18.35.5 12 .5z"/></svg>
+            GitHub
+          </a>
+          <a href="https://www.linkedin.com/in/junaidahmadcse/" target="_blank" rel="noopener noreferrer" class="about-link">
+            <svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M20.45 20.45h-3.56v-5.57c0-1.33-.02-3.03-1.85-3.03-1.85 0-2.13 1.45-2.13 2.94v5.66H9.36V9h3.42v1.56h.05c.48-.9 1.64-1.85 3.38-1.85 3.61 0 4.28 2.38 4.28 5.47v6.27zM5.34 7.43a2.07 2.07 0 1 1 0-4.14 2.07 2.07 0 0 1 0 4.14zM7.12 20.45H3.56V9h3.56v11.45zM22.23 0H1.77C.79 0 0 .77 0 1.72v20.56C0 23.23.79 24 1.77 24h20.46C23.21 24 24 23.23 24 22.28V1.72C24 .77 23.21 0 22.23 0z"/></svg>
+            LinkedIn
+          </a>
         </div>
 
-        <div class="setting-item">
-          <div>
-            <h3>Reset to Defaults</h3>
-            <p>Restore default blocked sites and settings</p>
-          </div>
-          <button id="resetSettings" class="btn btn-danger">Reset</button>
+        <div class="about-meta">
+          <span id="aboutVersion">v0.0</span>
+          <span class="about-dot">·</span>
+          <span>Made for focus</span>
         </div>
       </div>
     </div>
 
+    <!-- ========== FOOTER ========== -->
     <footer class="footer">
       <div id="statusMessage" class="status-message"></div>
     </footer>
