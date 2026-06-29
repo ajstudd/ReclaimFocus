@@ -34,6 +34,9 @@ let currentSettings = {
 };
 
 const DEFAULT_REDIRECT_SITES = [];
+const POPUP_TABS = ['blocked-sites', 'blocked-keywords', 'time-limited', 'redirects', 'tasks', 'logs', 'settings'];
+const DAY_SHORT_LABELS = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
+const DAY_LONG_LABELS = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
 
 let editingIndex = null;
 let editingKeywordIndex = null;
@@ -63,6 +66,9 @@ document.addEventListener('DOMContentLoaded', async () => {
   setRedirectInPicker('global', currentSettings.keywordSettings?.globalRedirect || 'about:newtab');
   await restoreInputFields();
   setupEventListeners();
+  await restoreActivePopupTab();
+  syncRepeatDayButtonsFromHidden();
+  updateTaskScheduleUI();
   updateStats();
   startTimerUpdates();
   startTaskCountdowns();
@@ -120,7 +126,7 @@ const DRAFT_INPUT_IDS = [
   'domain',
   'keyword',
   'timeDomain', 'timeLimit', 'cooldownPeriod', 'extraTime',
-  'taskName', 'taskTime', 'taskPriority', 'taskRecurrence',
+  'taskName', 'taskDate', 'taskTime', 'taskPriority', 'taskRepeatMode', 'taskRepeatDays',
   'redirectName', 'redirectUrl'
 ];
 const DRAFT_CHECKBOX_IDS = ['taskNotification'];
@@ -131,7 +137,7 @@ const FORM_DRAFT_MAP = {
   keyword:    { inputs: ['keyword'],                                                         pickers: ['keyword']   },
   global:     { inputs: [],                                                                  pickers: ['global']    },
   timeLimit:  { inputs: ['timeDomain', 'timeLimit', 'cooldownPeriod', 'extraTime'],          pickers: ['timeLimit'] },
-  task:       { inputs: ['taskName', 'taskTime', 'taskPriority', 'taskRecurrence'],
+  task:       { inputs: ['taskName', 'taskDate', 'taskTime', 'taskPriority', 'taskRepeatMode', 'taskRepeatDays'],
                 checkboxes: ['taskNotification'],                                            pickers: ['task']      },
   redirect:   { inputs: ['redirectName', 'redirectUrl'],                                     pickers: []            },
 };
@@ -259,7 +265,7 @@ function setupEventListeners() {
   document.querySelectorAll('.tab-picker-btn').forEach(btn => {
     btn.addEventListener('click', (e) => {
       e.stopPropagation();
-      openTabPicker(btn.dataset.target);
+      openTabPicker(btn.dataset.target, btn.dataset.mode || 'domain');
     });
   });
   // Close pickers on outside click
@@ -330,6 +336,56 @@ function setupEventListeners() {
 
   document.getElementById('cancelTaskEdit').addEventListener('click', cancelTaskEdit);
 
+  document.querySelectorAll('.schedule-mode-option').forEach(button => {
+    button.addEventListener('click', () => {
+      setTaskScheduleMode(button.dataset.scheduleMode || 'once');
+      saveInputDrafts();
+    });
+  });
+
+  document.getElementById('taskRepeatMode').addEventListener('change', () => {
+    updateTaskScheduleUI();
+    saveInputDrafts();
+  });
+  document.getElementById('taskDate').addEventListener('change', updateTaskScheduleUI);
+  document.getElementById('taskTime').addEventListener('change', updateTaskScheduleUI);
+  document.querySelectorAll('[data-time-preset]').forEach(button => {
+    button.addEventListener('click', () => {
+      const time = button.dataset.timePreset;
+      if (!time) return;
+      document.getElementById('taskTime').value = time;
+      updateTaskScheduleUI();
+      saveInputDrafts();
+    });
+  });
+  document.querySelectorAll('[data-date-offset]').forEach(button => {
+    button.addEventListener('click', () => {
+      const offset = parseInt(button.dataset.dateOffset, 10);
+      if (!Number.isInteger(offset)) return;
+      const date = new Date();
+      date.setDate(date.getDate() + offset);
+      document.getElementById('taskDate').value = toDateInputValue(date);
+      updateTaskScheduleUI();
+      saveInputDrafts();
+    });
+  });
+  document.querySelectorAll('.day-chip').forEach(button => {
+    button.addEventListener('click', () => {
+      const day = parseInt(button.dataset.day, 10);
+      const days = getSelectedRepeatDays();
+      const nextDays = days.includes(day) ? days.filter(d => d !== day) : [...days, day];
+      setSelectedRepeatDays(nextDays);
+      saveInputDrafts();
+    });
+  });
+  document.querySelectorAll('.repeat-preset').forEach(button => {
+    button.addEventListener('click', () => {
+      const days = button.dataset.days.split(',').map(Number);
+      setSelectedRepeatDays(days);
+      saveInputDrafts();
+    });
+  });
+
   // Toggle & settings
   document.getElementById('enableToggle').addEventListener('change', async (e) => {
     currentSettings.settings.enabled = e.target.checked;
@@ -352,20 +408,6 @@ function setupEventListeners() {
     currentSettings.settings.deepKeywordScan = e.target.checked;
     await chrome.storage.local.set({ settings: currentSettings.settings });
     showStatus(e.target.checked ? 'Deep scanning enabled' : 'Deep scanning disabled', 'info');
-  });
-
-  // Extra time modal buttons
-  document.getElementById('grantExtraTime').addEventListener('click', async () => {
-    const domain = document.getElementById('extraTimeDomain').textContent;
-    await chrome.runtime.sendMessage({ action: 'grantExtraTime', domain });
-    document.getElementById('extraTimeModal').style.display = 'none';
-    showStatus('Extra time granted!', 'success');
-  });
-
-  document.getElementById('denyExtraTime').addEventListener('click', async () => {
-    const domain = document.getElementById('extraTimeDomain').textContent;
-    await chrome.runtime.sendMessage({ action: 'denyExtraTime', domain });
-    document.getElementById('extraTimeModal').style.display = 'none';
   });
 
   // Settings buttons
@@ -416,18 +458,24 @@ function setupEventListeners() {
     picker.querySelector('.rp-url')?.addEventListener('input', saveInputDrafts);
   });
 
-  // Listen for extra time prompt from background
-  chrome.runtime.onMessage.addListener((message) => {
-    if (message.action === 'showExtraTimePrompt') {
-      document.getElementById('extraTimeDomain').textContent = message.domain;
-      document.getElementById('extraTimeAmount').textContent = message.extraTimeMinutes || 5;
-      document.getElementById('extraTimeModal').style.display = 'flex';
-    }
-  });
 }
 
 // ========== TAB SWITCHING ==========
-function switchTab(tabName) {
+async function restoreActivePopupTab() {
+  try {
+    const { activePopupTab } = await chrome.storage.local.get('activePopupTab');
+    if (activePopupTab && POPUP_TABS.includes(activePopupTab)) {
+      switchTab(activePopupTab, { persist: false });
+    }
+  } catch (error) {
+    // Keep the default tab if storage is unavailable.
+  }
+}
+
+function switchTab(tabName, options = {}) {
+  const { persist = true } = options;
+  if (!POPUP_TABS.includes(tabName)) tabName = 'blocked-sites';
+
   document.querySelectorAll('.nav-item').forEach(btn => {
     btn.classList.remove('active');
     btn.setAttribute('aria-selected', 'false');
@@ -441,6 +489,15 @@ function switchTab(tabName) {
   }
   const panel = document.getElementById(tabName);
   if (panel) panel.classList.add('active');
+
+  if (persist) {
+    try {
+      const result = chrome.storage.local.set({ activePopupTab: tabName });
+      if (result?.catch) result.catch(() => {});
+    } catch (error) {
+      // The tab switch should still work even if persistence fails.
+    }
+  }
 }
 
 // ========== DOMAIN AUTOCOMPLETE ==========
@@ -473,10 +530,10 @@ function handleDomainAutocomplete(e) {
 }
 
 // ========== TAB PICKER ==========
-async function openTabPicker(targetInputId) {
-  const dropdownId = targetInputId === 'domain' ? 'domainTabPicker' : 'timeDomainTabPicker';
-  const dropdown = document.getElementById(dropdownId);
+async function openTabPicker(targetInputId, mode = 'domain') {
+  const dropdown = document.querySelector(`.tab-picker-dropdown[data-target="${targetInputId}"]`);
   if (!dropdown) return;
+  const pickerMode = mode || dropdown.dataset.mode || 'domain';
 
   // Toggle if already open
   if (dropdown.classList.contains('visible')) {
@@ -486,20 +543,26 @@ async function openTabPicker(targetInputId) {
 
   // Close other pickers
   document.querySelectorAll('.tab-picker-dropdown').forEach(d => {
-    if (d.id !== dropdownId) d.classList.remove('visible');
+    if (d !== dropdown) d.classList.remove('visible');
   });
 
   try {
     const tabs = await chrome.tabs.query({});
-    const seen = new Map(); // domain -> { title, favIconUrl }
+    const seen = new Map(); // key -> tab metadata
     for (const tab of tabs) {
       if (!tab.url) continue;
       try {
         const u = new URL(tab.url);
         if (!/^https?:$/.test(u.protocol)) continue;
         const domain = u.hostname.replace(/^www\./, '');
-        if (!seen.has(domain)) {
-          seen.set(domain, { title: tab.title || domain, favIconUrl: tab.favIconUrl || '' });
+        const key = pickerMode === 'url' ? tab.url : domain;
+        if (!seen.has(key)) {
+          seen.set(key, {
+            value: pickerMode === 'url' ? tab.url : domain,
+            domain,
+            title: tab.title || domain,
+            favIconUrl: tab.favIconUrl || ''
+          });
         }
       } catch (_) { /* skip */ }
     }
@@ -507,13 +570,13 @@ async function openTabPicker(targetInputId) {
     if (seen.size === 0) {
       dropdown.innerHTML = '<div class="tab-picker-empty">No open tabs with valid URLs</div>';
     } else {
-      dropdown.innerHTML = Array.from(seen.entries()).map(([domain, info]) => `
-        <div class="tab-picker-item" data-domain="${domain}">
+      dropdown.innerHTML = Array.from(seen.values()).map(info => `
+        <div class="tab-picker-item" data-value="${escapeHtml(info.value)}" data-domain="${escapeHtml(info.domain)}" data-title="${escapeHtml(info.title)}">
           ${info.favIconUrl
-            ? `<img class="tab-picker-favicon" src="${info.favIconUrl}" alt="">`
+            ? `<img class="tab-picker-favicon" src="${escapeHtml(info.favIconUrl)}" alt="">`
             : `<div class="tab-picker-favicon" style="background:var(--border-color);"></div>`}
           <div class="tab-picker-info">
-            <div class="tab-picker-domain">${domain}</div>
+            <div class="tab-picker-domain">${escapeHtml(info.domain)}</div>
             <div class="tab-picker-title">${escapeHtml(info.title)}</div>
           </div>
         </div>
@@ -523,8 +586,15 @@ async function openTabPicker(targetInputId) {
         item.addEventListener('click', () => {
           const input = document.getElementById(targetInputId);
           if (input) {
-            input.value = item.dataset.domain;
+            input.value = item.dataset.value;
             input.dispatchEvent(new Event('input', { bubbles: true }));
+          }
+          if (pickerMode === 'url' && targetInputId === 'redirectUrl') {
+            const nameInput = document.getElementById('redirectName');
+            if (nameInput && !nameInput.value.trim()) {
+              nameInput.value = cleanTabTitle(item.dataset.title, item.dataset.domain);
+              nameInput.dispatchEvent(new Event('input', { bubbles: true }));
+            }
           }
           dropdown.classList.remove('visible');
         });
@@ -543,6 +613,15 @@ function escapeHtml(str) {
     .replace(/</g, '&lt;')
     .replace(/>/g, '&gt;')
     .replace(/"/g, '&quot;');
+}
+
+function cleanTabTitle(title, domain) {
+  const fallback = domain || 'Saved destination';
+  const cleaned = String(title || '')
+    .replace(/\s+[-|]\s+.*$/, '')
+    .replace(/\s+/g, ' ')
+    .trim();
+  return cleaned || fallback;
 }
 
 // ========== BLOCK CURRENT SITE ==========
@@ -1124,35 +1203,51 @@ async function loadTimeLimitedSites() {
     const cooldownKey = `cooldown_${domain}`;
     const timerData = timerStatuses[domain];
     const cooldownData = cooldownStatuses[cooldownKey];
+    let meterHtml = '';
 
     if (cooldownData && cooldownData.remainingMs > 0) {
       const mins = Math.floor(cooldownData.remainingMs / 60000);
       const secs = Math.floor((cooldownData.remainingMs % 60000) / 1000);
       statusHtml = `<div class="site-status site-status--locked" title="Cooldown remaining before you can browse again">${icon('lock')} ${mins}:${String(secs).padStart(2, '0')}</div>`;
+      const totalCooldown = cooldownData.totalCooldownMs || cooldownData.remainingMs;
+      const progress = totalCooldown > 0 ? Math.max(0, Math.min(100, (cooldownData.remainingMs / totalCooldown) * 100)) : 0;
+      meterHtml = `
+        <div class="site-meter site-meter--cooldown" title="Cooldown remaining">
+          <div class="site-meter-track">
+            <div class="site-meter-fill" style="transform: scaleX(${progress / 100});"></div>
+          </div>
+        </div>
+      `;
     } else if (timerData) {
       const remaining = Math.max(0, timerData.timeRemaining);
       const mins = Math.floor(remaining / 60000);
       const secs = Math.floor((remaining % 60000) / 1000);
       statusHtml = `<div class="site-status site-status--active" title="Time remaining in current browsing session">${icon('clock')} ${mins}:${String(secs).padStart(2, '0')}</div>`;
+      const totalTime = timerData.totalTime || remaining;
+      const progress = totalTime > 0 ? Math.max(0, Math.min(100, remaining / totalTime * 100)) : 0;
+      meterHtml = `
+        <div class="site-meter site-meter--active" title="Time left in this session">
+          <div class="site-meter-track">
+            <div class="site-meter-fill" style="transform: scaleX(${progress / 100});"></div>
+          </div>
+        </div>
+      `;
     } else {
       statusHtml = `<div class="site-status site-status--available" title="Timer hasn't started. You'll get ${site.timeLimit} min when you open this site.">${icon('unlock')} ${site.timeLimit}m</div>`;
     }
-
-    const extraTimeText = site.extraTimeUsed
-      ? `<div class="site-status site-status--extra-used">${icon('zap')} Extra time used</div>`
-      : '';
 
     return `
       <div class="blocked-item">
         <div class="blocked-info">
           <div class="blocked-domain">${site.domain}</div>
-          <div class="blocked-redirect">Time: ${site.timeLimit}m | Cooldown: ${site.cooldown}m | Extra: ${site.extraTime || 5}m | Redirect: ${redirectText}</div>
-          ${statusHtml}${extraTimeText}
+          <div class="blocked-redirect">Limit: ${site.timeLimit}m | Cooldown: ${site.cooldown}m | Grace: ${site.extraTime ?? 5}m | Redirect: ${redirectText}</div>
+          ${statusHtml}
         </div>
         <div class="blocked-actions">
           <button class="btn btn-secondary btn-small edit-time-btn" data-index="${index}">${icon('edit')}</button>
           <button class="btn btn-danger btn-small remove-time-btn" data-index="${index}">${icon('trash')}</button>
         </div>
+        ${meterHtml}
       </div>
     `;
   }).join('');
@@ -1169,7 +1264,8 @@ async function addTimeLimitSite() {
   let domain = document.getElementById('timeDomain').value.trim().toLowerCase().replace(/^https?:\/\//, '').replace(/\/$/, '').replace(/^www\./, '');
   const timeLimit = parseInt(document.getElementById('timeLimit').value);
   const cooldown = parseInt(document.getElementById('cooldownPeriod').value);
-  const extraTime = parseInt(document.getElementById('extraTime').value) || 5;
+  const extraTimeValue = document.getElementById('extraTime').value;
+  const extraTime = extraTimeValue === '' ? 5 : Math.max(0, parseInt(extraTimeValue, 10) || 0);
 
   const result = getRedirectFromPicker('timeLimit');
   if (result.invalid) { showStatus('Invalid redirect URL', 'error'); return; }
@@ -1208,7 +1304,7 @@ function editTimeLimitSite(index) {
   document.getElementById('timeDomain').value = site.domain;
   document.getElementById('timeLimit').value = site.timeLimit;
   document.getElementById('cooldownPeriod').value = site.cooldown;
-  document.getElementById('extraTime').value = site.extraTime || 5;
+  document.getElementById('extraTime').value = site.extraTime ?? 5;
   setRedirectInPicker('timeLimit', site.redirect || '');
   editingTimeLimitIndex = index;
 
@@ -1270,7 +1366,7 @@ async function updateTimerDisplay() {
     const ringProgress = document.getElementById('timerRingProgress');
 
     if (response?.timerData) {
-      const { domain, minutesRemaining, secondsRemaining, isPaused, timeRemaining, totalTime } = response.timerData;
+      const { domain, minutesRemaining, secondsRemaining, isPaused, timeRemaining, totalTime, graceActive } = response.timerData;
       timerCard.style.display = 'block';
       timerDomain.textContent = domain;
       timerDisplay.textContent = `${String(minutesRemaining).padStart(2, '0')}:${String(secondsRemaining).padStart(2, '0')}`;
@@ -1284,7 +1380,10 @@ async function updateTimerDisplay() {
 
       // Update card style
       timerCard.className = 'timer-card';
-      if (isPaused) {
+      if (graceActive) {
+        timerCard.classList.add('timer-card--warning');
+        timerStatusText.textContent = 'Grace Window';
+      } else if (isPaused) {
         timerCard.classList.add('timer-card--paused');
         timerStatusText.textContent = 'Paused';
       } else if (minutesRemaining === 0 && secondsRemaining <= 30) {
@@ -1301,30 +1400,6 @@ async function updateTimerDisplay() {
       timerCard.style.display = 'none';
     }
 
-    // Cooldown bar
-    const cooldownBar = document.getElementById('cooldownBar');
-    try {
-      const cooldownResp = await chrome.runtime.sendMessage({ action: 'getCooldownStatus' });
-      const cooldowns = cooldownResp?.cooldowns || {};
-      const entries = Object.values(cooldowns).filter(c => c.remainingMs > 0);
-
-      if (entries.length > 0) {
-        const cd = entries[0]; // show first active cooldown
-        const mins = Math.floor(cd.remainingMs / 60000);
-        const secs = Math.floor((cd.remainingMs % 60000) / 1000);
-        document.getElementById('cooldownRemaining').textContent = `${cd.domain} · ${mins}:${String(secs).padStart(2, '0')}`;
-        // Progress bar (approximate)
-        const totalCooldown = cd.totalCooldownMs || (cd.remainingMs + 1);
-        const pct = Math.max(0, Math.min(100, (cd.remainingMs / totalCooldown) * 100));
-        document.getElementById('cooldownProgressFill').style.width = pct + '%';
-        cooldownBar.style.display = 'flex';
-      } else {
-        cooldownBar.style.display = 'none';
-      }
-    } catch (e) {
-      cooldownBar.style.display = 'none';
-    }
-
     // Refresh site list statuses periodically
     await loadTimeLimitedSites();
   } catch (error) {
@@ -1336,35 +1411,36 @@ async function updateTimerDisplay() {
 async function loadScheduledTasks() {
   const container = document.getElementById('tasksList');
   if (!currentSettings.scheduledTasks || currentSettings.scheduledTasks.length === 0) {
-    container.innerHTML = '<div class="empty-state"><p>No scheduled tasks yet. Create one above!</p></div>';
+    container.innerHTML = `<div class="empty-state empty-state--schedule">${icon('clock')}<p>No reminders yet.</p><small>Choose Once or Repeat above to schedule your first focus nudge.</small></div>`;
     return;
   }
 
   const priorityRank = { high: 0, medium: 1, low: 2 };
-  // Primary sort: priority (high first), secondary: scheduled time
-  const sorted = [...currentSettings.scheduledTasks].sort((a, b) => {
-    const pa = priorityRank[a.priority || 'medium'];
-    const pb = priorityRank[b.priority || 'medium'];
-    if (pa !== pb) return pa - pb;
-    return new Date(a.scheduledTime) - new Date(b.scheduledTime);
-  });
+  const sorted = currentSettings.scheduledTasks
+    .map((task, originalIndex) => ({ task, originalIndex }))
+    .sort((a, b) => {
+      const ta = new Date(a.task.scheduledTime);
+      const tb = new Date(b.task.scheduledTime);
+      if (ta.getTime() !== tb.getTime()) return ta - tb;
+      return (priorityRank[a.task.priority || 'medium'] ?? 1) - (priorityRank[b.task.priority || 'medium'] ?? 1);
+    });
   const now = new Date();
   const todayEnd = new Date(now); todayEnd.setHours(23, 59, 59, 999);
 
-  const todayTasks = sorted.filter(t => { const d = new Date(t.scheduledTime); return d >= now && d <= todayEnd; });
-  const upcomingTasks = sorted.filter(t => new Date(t.scheduledTime) > todayEnd);
-  const pastTasks = sorted.filter(t => new Date(t.scheduledTime) < now);
+  const todayTasks = sorted.filter(item => { const d = new Date(item.task.scheduledTime); return d >= now && d <= todayEnd; });
+  const upcomingTasks = sorted.filter(item => new Date(item.task.scheduledTime) > todayEnd);
+  const pastTasks = sorted.filter(item => new Date(item.task.scheduledTime) < now);
 
   let html = '';
 
   if (todayTasks.length > 0) {
-    html += `<div class="task-group"><h3 class="task-group-title">${icon('calendar')} Today</h3>${todayTasks.map((t, i) => renderTaskCard(t, sorted.indexOf(t))).join('')}</div>`;
+    html += `<div class="task-group"><h3 class="task-group-title">${icon('calendar')} Today</h3>${todayTasks.map(item => renderTaskCard(item.task, item.originalIndex)).join('')}</div>`;
   }
   if (upcomingTasks.length > 0) {
-    html += `<div class="task-group"><h3 class="task-group-title">${icon('calendar')} Upcoming</h3>${upcomingTasks.map((t, i) => renderTaskCard(t, sorted.indexOf(t))).join('')}</div>`;
+    html += `<div class="task-group"><h3 class="task-group-title">${icon('calendar')} Upcoming</h3>${upcomingTasks.map(item => renderTaskCard(item.task, item.originalIndex)).join('')}</div>`;
   }
   if (pastTasks.length > 0) {
-    html += `<div class="task-group"><h3 class="task-group-title">${icon('clock')} Past</h3>${pastTasks.map((t, i) => renderTaskCard(t, sorted.indexOf(t))).join('')}</div>`;
+    html += `<div class="task-group"><h3 class="task-group-title">${icon('clock')} Past</h3>${pastTasks.map(item => renderTaskCard(item.task, item.originalIndex)).join('')}</div>`;
   }
 
   container.innerHTML = html;
@@ -1382,28 +1458,37 @@ function renderTaskCard(task, index) {
   const isPast = scheduledDate < new Date();
   const timeRemaining = getTimeRemaining(scheduledDate);
   const priority = task.priority || 'medium';
-  const recurrence = task.recurrence || 'none';
+  const repeatDays = getTaskRepeatDays(task);
+  const recurrenceLabel = repeatDays.length ? `Repeats ${formatRepeatDays(repeatDays)}` : 'One time';
+  const alertLabel = getAlertLevelLabel(priority);
+  const timeLabel = scheduledDate.toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' });
+  const dateLabel = scheduledDate.toLocaleDateString([], { weekday: 'short', month: 'short', day: 'numeric' });
 
   const badgeClass = isPast ? 'task-badge--past' : 'task-badge--scheduled';
-  const badgeText = isPast ? 'PAST' : 'SCHEDULED';
-  const recurrenceBadge = recurrence !== 'none'
-    ? `<span class="task-badge task-badge--recurring">${icon('refreshCw')} ${recurrence}</span>`
+  const badgeText = isPast ? 'Past' : 'Scheduled';
+  const recurrenceBadge = repeatDays.length
+    ? `<span class="task-badge task-badge--recurring">${icon('refreshCw')} ${escapeHtml(recurrenceLabel)}</span>`
     : '';
+  const alertBadge = `<span class="task-badge task-badge--priority-${priority}">${escapeHtml(alertLabel)}</span>`;
 
   return `
-    <div class="task-card">
+    <div class="task-card task-card--${priority}">
+      <div class="task-timeplate">
+        <span>${escapeHtml(timeLabel)}</span>
+        <small>${escapeHtml(dateLabel)}</small>
+      </div>
       <div class="task-info">
         <div class="task-name">
           <span class="priority-dot priority-dot--${priority}"></span>
-          ${task.name || 'Scheduled Task'}
+          <span class="task-title-text">${escapeHtml(task.name || 'Scheduled Reminder')}</span>
           <span class="task-badge ${badgeClass}">${badgeText}</span>
+          ${alertBadge}
           ${recurrenceBadge}
         </div>
-        ${task.url ? `<div class="task-url">${task.url}</div>` : ''}
+        ${task.url ? `<div class="task-url">${escapeHtml(task.url)}</div>` : ''}
         <div class="task-time">
           ${icon('clock')}
-          ${scheduledDate.toLocaleString()}
-          ${!isPast ? `<span class="task-countdown ${timeRemaining.urgent ? 'urgent' : ''}">(${timeRemaining.text})</span>` : ''}
+          ${isPast ? '<span>Past</span>' : `<span class="task-countdown ${timeRemaining.urgent ? 'urgent' : ''}">${timeRemaining.text}</span>`}
         </div>
       </div>
       <div class="task-actions">
@@ -1426,54 +1511,351 @@ function getTimeRemaining(scheduledDate) {
   return { text: `in ${diffDays}d ${diffHours % 24}h`, urgent: false };
 }
 
+function getAlertLevelLabel(priority) {
+  if (priority === 'high') return 'Important';
+  if (priority === 'low') return 'Quiet';
+  return 'Normal';
+}
+
+function formatTaskDateTime(date) {
+  return date.toLocaleString([], {
+    weekday: 'short',
+    month: 'short',
+    day: 'numeric',
+    hour: 'numeric',
+    minute: '2-digit'
+  });
+}
+
+function toDateInputValue(date) {
+  return new Date(date.getTime() - date.getTimezoneOffset() * 60000).toISOString().slice(0, 10);
+}
+
+function setTaskScheduleMode(mode) {
+  const normalizedMode = mode === 'repeat' ? 'repeat' : 'once';
+  const repeatMode = document.getElementById('taskRepeatMode');
+  if (repeatMode) repeatMode.value = normalizedMode;
+  updateTaskScheduleUI();
+}
+
+function syncTaskScheduleModeButtons(mode) {
+  const normalizedMode = mode === 'repeat' ? 'repeat' : 'once';
+  document.querySelectorAll('.schedule-mode-option').forEach(button => {
+    const active = button.dataset.scheduleMode === normalizedMode;
+    button.classList.toggle('active', active);
+    button.setAttribute('aria-pressed', String(active));
+  });
+}
+
+function syncClockPresetChips(time, date) {
+  document.querySelectorAll('[data-time-preset]').forEach(button => {
+    button.classList.toggle('active', button.dataset.timePreset === time);
+  });
+
+  document.querySelectorAll('[data-date-offset]').forEach(button => {
+    const offset = parseInt(button.dataset.dateOffset, 10);
+    if (!Number.isInteger(offset)) {
+      button.classList.remove('active');
+      return;
+    }
+    const presetDate = new Date();
+    presetDate.setDate(presetDate.getDate() + offset);
+    button.classList.toggle('active', date === toDateInputValue(presetDate));
+  });
+}
+
+function formatTimePreview(timeOfDay) {
+  if (!timeOfDay) return '--:--';
+  const [hours, minutes] = timeOfDay.split(':').map(Number);
+  if (!Number.isInteger(hours) || !Number.isInteger(minutes)) return '--:--';
+  const date = new Date();
+  date.setHours(hours, minutes, 0, 0);
+  return date.toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' });
+}
+
+function updateTaskClockPreview({ mode, time, date, days = [], nextRun = null, warning = false }) {
+  const preview = document.getElementById('taskClockPreview');
+  const modeLabel = document.getElementById('clockModeLabel');
+  const timeLabel = document.getElementById('schedulePreviewTime');
+  const dateLabel = document.getElementById('schedulePreviewDate');
+  if (!preview || !modeLabel || !timeLabel || !dateLabel) return;
+
+  const isRepeat = mode === 'repeat';
+  preview.classList.toggle('clock-preview--repeat', isRepeat);
+  preview.classList.toggle('clock-preview--warning', warning);
+  modeLabel.textContent = isRepeat ? 'Repeating reminder' : 'One-time reminder';
+  timeLabel.textContent = formatTimePreview(time);
+
+  if (time) {
+    const [hours, minutes] = time.split(':').map(Number);
+    if (Number.isInteger(hours) && Number.isInteger(minutes)) {
+      preview.style.setProperty('--clock-hour-rotation', `${(hours % 12) * 30 + minutes * 0.5}deg`);
+      preview.style.setProperty('--clock-minute-rotation', `${minutes * 6}deg`);
+    }
+  } else {
+    preview.style.removeProperty('--clock-hour-rotation');
+    preview.style.removeProperty('--clock-minute-rotation');
+  }
+
+  if (nextRun) {
+    dateLabel.textContent = isRepeat
+      ? `Next ${formatTaskDateTime(nextRun)}`
+      : formatTaskDateTime(nextRun);
+    return;
+  }
+
+  if (isRepeat) {
+    dateLabel.textContent = days.length ? `Repeats ${formatRepeatDays(days)}` : 'Choose repeat days';
+    return;
+  }
+
+  if (date) {
+    const scheduledDate = time ? new Date(`${date}T${time}`) : new Date(`${date}T00:00`);
+    dateLabel.textContent = Number.isNaN(scheduledDate.getTime())
+      ? 'Choose a valid date'
+      : scheduledDate.toLocaleDateString([], { weekday: 'short', month: 'short', day: 'numeric' });
+    return;
+  }
+
+  dateLabel.textContent = 'Pick a date and time';
+}
+
+function getSelectedRepeatDays() {
+  const hidden = document.getElementById('taskRepeatDays');
+  if (!hidden?.value) return [];
+  return hidden.value.split(',')
+    .map(v => parseInt(v, 10))
+    .filter(v => Number.isInteger(v) && v >= 0 && v <= 6)
+    .filter((v, i, arr) => arr.indexOf(v) === i)
+    .sort((a, b) => a - b);
+}
+
+function setSelectedRepeatDays(days) {
+  const cleanDays = [...new Set(days)]
+    .filter(v => Number.isInteger(v) && v >= 0 && v <= 6)
+    .sort((a, b) => a - b);
+  document.getElementById('taskRepeatDays').value = cleanDays.join(',');
+  syncRepeatDayButtonsFromHidden();
+  updateTaskScheduleUI();
+}
+
+function syncRepeatDayButtonsFromHidden() {
+  const selected = getSelectedRepeatDays();
+  document.querySelectorAll('.day-chip').forEach(button => {
+    const active = selected.includes(parseInt(button.dataset.day, 10));
+    button.classList.toggle('active', active);
+    button.setAttribute('aria-pressed', String(active));
+  });
+}
+
+function updateTaskScheduleUI() {
+  const repeatMode = document.getElementById('taskRepeatMode')?.value || 'once';
+  const isRepeat = repeatMode === 'repeat';
+  const dateGroup = document.getElementById('taskDateGroup');
+  const repeatControls = document.getElementById('taskRepeatControls');
+  const summary = document.getElementById('taskScheduleSummary');
+  const time = document.getElementById('taskTime')?.value || '';
+  const date = document.getElementById('taskDate')?.value || '';
+  const days = getSelectedRepeatDays();
+
+  if (dateGroup) dateGroup.hidden = isRepeat;
+  if (repeatControls) repeatControls.hidden = !isRepeat;
+  syncTaskScheduleModeButtons(repeatMode);
+  syncClockPresetChips(time, date);
+  syncRepeatDayButtonsFromHidden();
+
+  if (!summary) {
+    updateTaskClockPreview({ mode: repeatMode, time, date, days });
+    return;
+  }
+
+  if (isRepeat) {
+    if (!time && days.length === 0) {
+      summary.textContent = 'Choose a time and the days this reminder should repeat.';
+      summary.classList.remove('schedule-summary--warning');
+      updateTaskClockPreview({ mode: repeatMode, time, days });
+      return;
+    }
+    if (!time) {
+      summary.textContent = `Repeats ${formatRepeatDays(days)}. Choose a time to finish scheduling.`;
+      summary.classList.remove('schedule-summary--warning');
+      updateTaskClockPreview({ mode: repeatMode, time, days });
+      return;
+    }
+    if (days.length === 0) {
+      summary.textContent = 'Choose at least one repeat day.';
+      summary.classList.add('schedule-summary--warning');
+      updateTaskClockPreview({ mode: repeatMode, time, days, warning: true });
+      return;
+    }
+    const nextRun = calculateNextRunForDays(time, days);
+    summary.textContent = `Next: ${formatTaskDateTime(nextRun)}. Repeats ${formatRepeatDays(days)}.`;
+    summary.classList.remove('schedule-summary--warning');
+    updateTaskClockPreview({ mode: repeatMode, time, days, nextRun });
+    return;
+  }
+
+  if (!date || !time) {
+    summary.textContent = 'Choose a date and time for this reminder.';
+    summary.classList.remove('schedule-summary--warning');
+    updateTaskClockPreview({ mode: repeatMode, time, date });
+    return;
+  }
+  const scheduledDate = new Date(`${date}T${time}`);
+  if (scheduledDate <= new Date()) {
+    summary.textContent = 'Choose a future time.';
+    summary.classList.add('schedule-summary--warning');
+    updateTaskClockPreview({ mode: repeatMode, time, date, warning: true });
+    return;
+  }
+  summary.textContent = `Scheduled for ${formatTaskDateTime(scheduledDate)}.`;
+  summary.classList.remove('schedule-summary--warning');
+  updateTaskClockPreview({ mode: repeatMode, time, date, nextRun: scheduledDate });
+}
+
+function calculateNextRunForDays(timeOfDay, repeatDays, from = new Date()) {
+  const [hours, minutes] = timeOfDay.split(':').map(Number);
+  for (let offset = 0; offset <= 7; offset++) {
+    const candidate = new Date(from);
+    candidate.setDate(from.getDate() + offset);
+    candidate.setHours(hours, minutes, 0, 0);
+    if (repeatDays.includes(candidate.getDay()) && candidate > from) {
+      return candidate;
+    }
+  }
+  const fallback = new Date(from);
+  fallback.setDate(from.getDate() + 1);
+  fallback.setHours(hours, minutes, 0, 0);
+  return fallback;
+}
+
+function formatRepeatDays(days) {
+  const clean = [...new Set(days)].sort((a, b) => a - b);
+  if (clean.length === 7) return 'every day';
+  if (clean.join(',') === '1,2,3,4,5') return 'weekdays';
+  if (clean.join(',') === '0,6') return 'weekends';
+  if (clean.length === 1) return DAY_LONG_LABELS[clean[0]];
+  return clean.map(day => DAY_SHORT_LABELS[day]).join(', ');
+}
+
+function getTaskRepeatDays(task) {
+  if (Array.isArray(task.repeatDays) && task.repeatDays.length > 0) {
+    return [...new Set(task.repeatDays.map(Number))]
+      .filter(v => Number.isInteger(v) && v >= 0 && v <= 6)
+      .sort((a, b) => a - b);
+  }
+
+  const recurrence = task.recurrence || 'none';
+  if (recurrence === 'daily') return [0, 1, 2, 3, 4, 5, 6];
+  if (recurrence === 'weekdays') return [1, 2, 3, 4, 5];
+  if (recurrence === 'weekly') return [new Date(task.scheduledTime).getDay()];
+  return [];
+}
+
+function getTaskTimeOfDay(task) {
+  if (task.timeOfDay) return task.timeOfDay;
+  const date = new Date(task.scheduledTime);
+  return `${String(date.getHours()).padStart(2, '0')}:${String(date.getMinutes()).padStart(2, '0')}`;
+}
+
+function getTaskScheduleForSave() {
+  const repeatMode = document.getElementById('taskRepeatMode').value;
+  const timeOfDay = document.getElementById('taskTime').value;
+  if (!timeOfDay) return { error: 'Choose a reminder time' };
+
+  if (repeatMode === 'repeat') {
+    const repeatDays = getSelectedRepeatDays();
+    if (repeatDays.length === 0) return { error: 'Choose at least one repeat day' };
+    return {
+      scheduledTime: calculateNextRunForDays(timeOfDay, repeatDays),
+      recurrence: 'custom',
+      repeatDays,
+      timeOfDay,
+      scheduledDate: ''
+    };
+  }
+
+  const scheduledDateValue = document.getElementById('taskDate').value;
+  if (!scheduledDateValue) return { error: 'Choose a reminder date' };
+  const scheduledTime = new Date(`${scheduledDateValue}T${timeOfDay}`);
+  if (Number.isNaN(scheduledTime.getTime())) return { error: 'Choose a valid date and time' };
+  if (scheduledTime <= new Date()) return { error: 'Choose a future time' };
+
+  return {
+    scheduledTime,
+    recurrence: 'none',
+    repeatDays: [],
+    timeOfDay,
+    scheduledDate: scheduledDateValue
+  };
+}
+
 async function addTask() {
-  const scheduledTime = document.getElementById('taskTime').value;
   const name = document.getElementById('taskName').value.trim();
   const showNotification = document.getElementById('taskNotification').checked;
   const priority = document.getElementById('taskPriority').value;
-  const recurrence = document.getElementById('taskRecurrence').value;
 
   if (!name) { showStatus('Task name is required', 'error'); return; }
-  if (!scheduledTime) { showStatus('Schedule time is required', 'error'); return; }
+
+  if (showNotification) {
+    try {
+      const permission = await chrome.runtime.sendMessage({ action: 'getNotificationPermission' });
+      if (permission?.success && permission.permissionLevel !== 'granted') {
+        showStatus(`Chrome notifications are ${permission.permissionLevel}`, 'error');
+        return;
+      }
+    } catch (error) {
+      showStatus('Could not check notification permission', 'error');
+      return;
+    }
+  }
 
   const result = getRedirectFromPicker('task');
   if (result.invalid) { showStatus('Invalid URL', 'error'); return; }
   const url = result.isEmpty ? '' : await commitNewRedirect(result);
 
-  const scheduledDate = new Date(scheduledTime);
-  if (scheduledDate < new Date()) { showStatus('Cannot schedule in the past', 'error'); return; }
+  const schedule = getTaskScheduleForSave();
+  if (schedule.error) { showStatus(schedule.error, 'error'); return; }
 
   const task = {
     id: editingTaskIndex !== null ? currentSettings.scheduledTasks[editingTaskIndex].id : Date.now(),
     url: url || '',
-    scheduledTime: scheduledDate.toISOString(),
-    name: name || 'Scheduled Task',
+    scheduledTime: schedule.scheduledTime.toISOString(),
+    name: name || 'Scheduled Reminder',
     showNotification,
     priority,
-    recurrence,
+    recurrence: schedule.recurrence,
+    repeatDays: schedule.repeatDays,
+    timeOfDay: schedule.timeOfDay,
+    scheduledDate: schedule.scheduledDate,
+    timezone: Intl.DateTimeFormat().resolvedOptions().timeZone,
     createdAt: editingTaskIndex !== null ? currentSettings.scheduledTasks[editingTaskIndex].createdAt : new Date().toISOString()
   };
 
-  if (editingTaskIndex !== null) {
+  const previousTasks = [...currentSettings.scheduledTasks];
+  const wasEditingTask = editingTaskIndex !== null;
+  if (wasEditingTask) {
     currentSettings.scheduledTasks[editingTaskIndex] = task;
-    showStatus('Task updated', 'success');
     editingTaskIndex = null;
     document.getElementById('cancelTaskEdit').style.display = 'none';
   } else {
     currentSettings.scheduledTasks.push(task);
-    showStatus('Task scheduled', 'success');
   }
 
   await chrome.storage.local.set({ scheduledTasks: currentSettings.scheduledTasks });
-  await chrome.runtime.sendMessage({ action: 'scheduleTask', task });
+  const scheduleResult = await chrome.runtime.sendMessage({ action: 'scheduleTask', task });
+  if (!scheduleResult?.success) {
+    currentSettings.scheduledTasks = previousTasks;
+    await chrome.storage.local.set({ scheduledTasks: currentSettings.scheduledTasks });
+    showStatus(scheduleResult?.error || 'Chrome could not schedule this reminder', 'error');
+    editingTaskIndex = null;
+    await loadScheduledTasks();
+    return;
+  }
 
-  // Clear form
-  resetRedirectPicker('task');
-  document.getElementById('taskTime').value = '';
-  document.getElementById('taskName').value = '';
-  document.getElementById('taskNotification').checked = true;
-  document.getElementById('taskPriority').value = 'medium';
-  document.getElementById('taskRecurrence').value = 'none';
+  showStatus(wasEditingTask ? 'Reminder updated' : 'Reminder scheduled', 'success');
+
+  resetTaskForm();
   await clearFormDrafts('task');
 
   await loadScheduledTasks();
@@ -1483,37 +1865,54 @@ function editTask(index) {
   const task = currentSettings.scheduledTasks[index];
   setRedirectInPicker('task', task.url || '');
   document.getElementById('taskName').value = task.name;
-  document.getElementById('taskNotification').checked = task.showNotification;
+  document.getElementById('taskNotification').checked = task.showNotification !== false;
   document.getElementById('taskPriority').value = task.priority || 'medium';
-  document.getElementById('taskRecurrence').value = task.recurrence || 'none';
 
   const date = new Date(task.scheduledTime);
-  document.getElementById('taskTime').value = new Date(date.getTime() - date.getTimezoneOffset() * 60000).toISOString().slice(0, 16);
+  const repeatDays = getTaskRepeatDays(task);
+  document.getElementById('taskRepeatMode').value = repeatDays.length ? 'repeat' : 'once';
+  document.getElementById('taskDate').value = toDateInputValue(date);
+  document.getElementById('taskTime').value = getTaskTimeOfDay(task);
+  setSelectedRepeatDays(repeatDays);
 
   editingTaskIndex = index;
   document.getElementById('cancelTaskEdit').style.display = 'inline-block';
+  const submitBtn = document.querySelector('#addTaskForm button[type="submit"]');
+  submitBtn.innerHTML = `${icon('edit')} Update Reminder`;
+  submitBtn.classList.replace('btn-primary', 'btn-warning');
+  updateTaskScheduleUI();
   switchTab('tasks');
 }
 
-async function cancelTaskEdit() {
+function resetTaskForm() {
   editingTaskIndex = null;
   resetRedirectPicker('task');
+  document.getElementById('taskDate').value = '';
   document.getElementById('taskTime').value = '';
   document.getElementById('taskName').value = '';
   document.getElementById('taskNotification').checked = true;
   document.getElementById('taskPriority').value = 'medium';
-  document.getElementById('taskRecurrence').value = 'none';
+  document.getElementById('taskRepeatMode').value = 'once';
+  setSelectedRepeatDays([]);
   document.getElementById('cancelTaskEdit').style.display = 'none';
+  const submitBtn = document.querySelector('#addTaskForm button[type="submit"]');
+  submitBtn.innerHTML = `<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg> Schedule Reminder`;
+  submitBtn.classList.replace('btn-warning', 'btn-primary');
+  updateTaskScheduleUI();
+}
+
+async function cancelTaskEdit() {
+  resetTaskForm();
   await clearFormDrafts('task');
 }
 
 async function removeTask(index) {
-  if (!confirm('Delete this task?')) return;
+  if (!confirm('Delete this reminder?')) return;
   const task = currentSettings.scheduledTasks[index];
   await chrome.runtime.sendMessage({ action: 'cancelTask', taskId: task.id });
   currentSettings.scheduledTasks.splice(index, 1);
   await chrome.storage.local.set({ scheduledTasks: currentSettings.scheduledTasks });
-  showStatus('Task deleted', 'success');
+  showStatus('Reminder deleted', 'success');
   await loadScheduledTasks();
   if (editingTaskIndex === index) await cancelTaskEdit();
   else if (editingTaskIndex > index) editingTaskIndex--;
@@ -1691,9 +2090,14 @@ function showStatus(message, type = 'info') {
 chrome.storage.onChanged.addListener(async (changes, namespace) => {
   if (namespace === 'local') {
     if (changes.blockedSites) { currentSettings.blockedSites = changes.blockedSites.newValue || []; await loadBlockedSites(); }
+    if (changes.blockedKeywords) { currentSettings.blockedKeywords = changes.blockedKeywords.newValue || []; await loadBlockedKeywords(); }
+    if (changes.timeLimitedSites) { currentSettings.timeLimitedSites = changes.timeLimitedSites.newValue || []; await loadTimeLimitedSites(); }
     if (changes.logs) { currentSettings.logs = changes.logs.newValue || []; await loadLogs(); updateStats(); }
     if (changes.scheduledTasks) { currentSettings.scheduledTasks = changes.scheduledTasks.newValue || []; await loadScheduledTasks(); }
     if (changes.redirectSites) { currentSettings.redirectSites = changes.redirectSites.newValue || []; await loadRedirectSites(); }
+    if (changes.lastNotificationError?.newValue) {
+      showStatus(`Notification blocked: ${changes.lastNotificationError.newValue.message}`, 'error');
+    }
   }
 });
 

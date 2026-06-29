@@ -12,7 +12,6 @@ const activeTimers = new Map();     // domain -> timer data
 const cooldownTimers = new Map();   // cooldown_domain -> cooldown data
 const activeTabs = new Map();       // domain -> Set of tabIds
 const timerIntervals = new Map();   // domain -> setTimeout ID
-const extraTimePromptPending = new Map(); // domain -> { timeout, siteConfig }
 const pendingToasts = new Map();    // tabId -> { type, from, to, label }
 
 // ========== STARTUP ==========
@@ -63,7 +62,7 @@ async function restoreTimersFromStorage() {
             saveCooldownsToStorage();
           }, remainingTime);
         } else {
-          // Cooldown expired while browser was closed; reset extra time
+          // Cooldown expired while browser was closed; reset the grace window.
           resetExtraTimeUsed(cooldownData.domain);
         }
       }
@@ -122,7 +121,28 @@ async function resetExtraTimeUsed(domain) {
       await chrome.storage.local.set({ timeLimitedSites });
     }
   } catch (e) {
-    console.error('Error resetting extra time:', e);
+    console.error('Error resetting grace window:', e);
+  }
+}
+
+async function setExtraTimeUsed(domain, used) {
+  try {
+    const { timeLimitedSites } = await chrome.storage.local.get('timeLimitedSites');
+    if (!Array.isArray(timeLimitedSites)) return;
+
+    const cleanDomain = domain.replace(/^www\./, '');
+    let changed = false;
+    for (const site of timeLimitedSites) {
+      if (site.domain.replace(/^www\./, '') === cleanDomain && site.extraTimeUsed !== used) {
+        site.extraTimeUsed = used;
+        changed = true;
+      }
+    }
+    if (changed) {
+      await chrome.storage.local.set({ timeLimitedSites });
+    }
+  } catch (error) {
+    console.error('Error updating grace window state:', error);
   }
 }
 
@@ -361,6 +381,296 @@ function injectToastFunc(info) {
     if (t) t.classList.add('out');
     setTimeout(() => host.remove(), 240);
   }, 3200);
+}
+
+async function showGraceWindowForDomain(domain, timerData) {
+  const tabs = activeTabs.get(domain) || new Set();
+  const remainingMs = Math.max(0, timerData.timeLimit - timerData.elapsedTime);
+  const info = {
+    domain,
+    extraTimeMinutes: Math.max(1, Math.round(timerData.extraTime / 60000)),
+    endsAt: Date.now() + remainingMs
+  };
+
+  for (const tabId of tabs) {
+    try {
+      const tab = await chrome.tabs.get(tabId).catch(() => null);
+      if (!tab?.url || !/^https?:/i.test(tab.url)) continue;
+      await chrome.scripting.executeScript({
+        target: { tabId },
+        func: injectGraceWindowFunc,
+        args: [info]
+      });
+    } catch (error) {
+      // The tab may have closed or the page may not allow injection.
+    }
+  }
+}
+
+function injectGraceWindowFunc(info) {
+  const existing = document.getElementById('__rf_grace_host__');
+  if (existing) existing.remove();
+
+  const host = document.createElement('div');
+  host.id = '__rf_grace_host__';
+  host.style.cssText = 'all:initial;position:fixed;inset:0;z-index:2147483647;';
+  const shadow = host.attachShadow({ mode: 'closed' });
+
+  shadow.innerHTML = `
+    <style>
+      @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap');
+      :host { all: initial; }
+      .overlay {
+        all: initial;
+        position: fixed;
+        inset: 0;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        padding: 24px;
+        background: rgba(12, 14, 22, 0.58);
+        backdrop-filter: blur(7px);
+        -webkit-backdrop-filter: blur(7px);
+        font-family: 'Inter', -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+        color: #151827;
+      }
+      .card {
+        all: initial;
+        position: relative;
+        width: min(420px, calc(100vw - 48px));
+        box-sizing: border-box;
+        padding: 24px;
+        border-radius: 16px;
+        background: #ffffff;
+        box-shadow: 0 24px 70px rgba(0, 0, 0, 0.32);
+        border: 1px solid rgba(255, 255, 255, 0.72);
+        color: #151827;
+        font-family: 'Inter', -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+        transform: translateY(8px) scale(0.98);
+        opacity: 0;
+        animation: rfgIn 220ms cubic-bezier(0.16, 1, 0.3, 1) forwards;
+      }
+      .close-btn {
+        all: initial;
+        position: absolute;
+        top: 14px;
+        right: 14px;
+        width: 28px;
+        height: 28px;
+        border-radius: 8px;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        cursor: pointer;
+        color: #7a8293;
+        background: transparent;
+        transition: background 150ms ease, color 150ms ease;
+      }
+      .close-btn:hover {
+        background: #f0f1f5;
+        color: #151827;
+      }
+      .close-btn svg { width: 16px; height: 16px; }
+      .mark {
+        width: 44px;
+        height: 44px;
+        border-radius: 14px;
+        background: #fff4dc;
+        color: #b15d05;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        margin-bottom: 14px;
+      }
+      .mark svg { width: 24px; height: 24px; }
+      h2 {
+        all: initial;
+        display: block;
+        font-family: 'Inter', -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+        font-size: 18px;
+        line-height: 1.3;
+        font-weight: 700;
+        letter-spacing: -0.01em;
+        color: #151827;
+        margin-bottom: 6px;
+      }
+      p {
+        all: initial;
+        display: block;
+        font-family: 'Inter', -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+        font-size: 13px;
+        line-height: 1.5;
+        color: #4f5668;
+        margin-bottom: 14px;
+      }
+      strong { font-weight: 700; color: #151827; }
+      .countdown {
+        all: initial;
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 12px;
+        box-sizing: border-box;
+        padding: 12px 14px;
+        border-radius: 12px;
+        background: #f7f8fb;
+        border: 1px solid #e3e6ee;
+        font-family: 'Inter', -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+        margin: 16px 0;
+      }
+      .countdown span:first-child {
+        all: initial;
+        font-family: 'Inter', -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+        color: #596174;
+        font-size: 12px;
+        font-weight: 600;
+        text-transform: uppercase;
+        letter-spacing: 0.4px;
+      }
+      .time {
+        all: initial;
+        font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+        color: #b15d05;
+        font-size: 20px;
+        font-weight: 700;
+      }
+      .actions {
+        all: initial;
+        display: flex;
+        gap: 10px;
+        margin-top: 18px;
+        font-family: 'Inter', -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+      }
+      button {
+        all: initial;
+        font-family: 'Inter', -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+        font-size: 13px;
+        font-weight: 600;
+        line-height: 1;
+        padding: 12px 14px;
+        border-radius: 10px;
+        cursor: pointer;
+        text-align: center;
+        box-sizing: border-box;
+      }
+      .primary {
+        background: #5848b9;
+        color: white;
+        flex: 1;
+        box-shadow: 0 6px 16px rgba(88, 72, 185, 0.24);
+      }
+      .secondary {
+        background: white;
+        color: #32384a;
+        border: 1px solid #d9deea;
+      }
+      .fine {
+        all: initial;
+        display: block;
+        margin-top: 12px;
+        font-family: 'Inter', -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+        font-size: 11.5px;
+        line-height: 1.45;
+        color: #7a8293;
+      }
+      @keyframes rfgIn {
+        to { opacity: 1; transform: translateY(0) scale(1); }
+      }
+      @media (max-width: 520px) {
+        .card { padding: 20px; }
+        .actions { flex-direction: column; }
+        .secondary, .primary { width: 100%; }
+      }
+    </style>
+    <div class="overlay" role="dialog" aria-modal="true" aria-labelledby="rf-title">
+      <div class="card">
+        <button type="button" class="close-btn" id="rf-close" title="Close (starts cooldown)">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
+        </button>
+        <div class="mark" aria-hidden="true">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>
+        </div>
+        <h2 id="rf-title">You are in overtime</h2>
+        <p>Your planned time on <strong id="rf-domain"></strong> is over.</p>
+        <div class="countdown">
+          <span>Grace remaining</span>
+          <span class="time" id="rf-time">--:--</span>
+        </div>
+        <div class="actions">
+          <button type="button" class="secondary" id="rf-lock">Start cooldown now</button>
+          <button type="button" class="primary" id="rf-continue">Continue for now</button>
+        </div>
+        <span class="fine" id="rf-fine"></span>
+      </div>
+    </div>
+  `;
+
+  const domainEl = shadow.getElementById('rf-domain');
+  const fineEl = shadow.getElementById('rf-fine');
+  const timeEl = shadow.getElementById('rf-time');
+  domainEl.textContent = info.domain;
+  fineEl.textContent = `You have ${info.extraTimeMinutes} minute${info.extraTimeMinutes === 1 ? '' : 's'} of grace for this cooldown cycle.`;
+
+  // Grace timer does NOT start until the user presses "Continue for now".
+  // Show the full grace time initially but don't tick.
+  const graceMs = info.extraTimeMinutes * 60 * 1000;
+  let timerStarted = false;
+  let graceEndsAt = 0;
+  let interval = null;
+
+  function renderStaticTime() {
+    const minutes = Math.floor(graceMs / 60000);
+    const seconds = Math.floor((graceMs % 60000) / 1000);
+    timeEl.textContent = `${String(minutes).padStart(2, '0')}:${String(seconds).padStart(2, '0')}`;
+  }
+
+  function renderTime() {
+    const remaining = Math.max(0, graceEndsAt - Date.now());
+    const minutes = Math.floor(remaining / 60000);
+    const seconds = Math.floor((remaining % 60000) / 1000);
+    timeEl.textContent = `${String(minutes).padStart(2, '0')}:${String(seconds).padStart(2, '0')}`;
+    if (remaining <= 0) {
+      fineEl.textContent = 'Cooldown is starting now.';
+      if (interval) clearInterval(interval);
+    }
+  }
+
+  renderStaticTime();
+
+  // Close button: grace NOT used, start cooldown
+  shadow.getElementById('rf-close').addEventListener('click', () => {
+    if (interval) clearInterval(interval);
+    if (typeof chrome !== 'undefined' && chrome.runtime?.sendMessage) {
+      chrome.runtime.sendMessage({ action: 'denyExtraTime', domain: info.domain });
+    }
+    host.remove();
+  });
+
+  // "Start cooldown now": cooldown starts, grace NOT used
+  shadow.getElementById('rf-lock').addEventListener('click', () => {
+    if (interval) clearInterval(interval);
+    if (typeof chrome !== 'undefined' && chrome.runtime?.sendMessage) {
+      chrome.runtime.sendMessage({ action: 'denyExtraTime', domain: info.domain });
+    }
+    host.remove();
+  });
+
+  // "Continue for now": starts the grace timer countdown
+  shadow.getElementById('rf-continue').addEventListener('click', () => {
+    if (!timerStarted) {
+      timerStarted = true;
+      graceEndsAt = Date.now() + graceMs;
+      interval = setInterval(renderTime, 1000);
+      renderTime();
+      // Tell background to start the grace countdown
+      if (typeof chrome !== 'undefined' && chrome.runtime?.sendMessage) {
+        chrome.runtime.sendMessage({ action: 'acceptExtraTime', domain: info.domain });
+      }
+    }
+    host.remove();
+  });
+
+  document.documentElement.appendChild(host);
 }
 
 // ========== DEEP KEYWORD SCAN (page content) ==========
@@ -612,8 +922,10 @@ async function startTimer(domain, siteConfig) {
     lastActiveTime: Date.now(),
     elapsedTime: 0,
     isPaused: false,
-    extraTime: (siteConfig.extraTime || 5) * 60 * 1000,
-    extraTimeUsed: siteConfig.extraTimeUsed || false
+    extraTime: Math.max(0, siteConfig.extraTime ?? 5) * 60 * 1000,
+    extraTimeUsed: siteConfig.extraTimeUsed || false,
+    graceActive: false,
+    graceStartedAt: null
   };
 
   activeTimers.set(domain, timerData);
@@ -684,33 +996,21 @@ async function checkTimer(domain) {
     }
 
     const now = Date.now();
+    if (timerData.gracePromptActive) {
+      timerData.lastActiveTime = now;
+      await saveTimersToStorage();
+      const timeoutId = setTimeout(() => checkTimer(domain), 2000);
+      timerIntervals.set(domain, timeoutId);
+      return;
+    }
+
     const deltaTime = now - timerData.lastActiveTime;
     timerData.elapsedTime += deltaTime;
     timerData.lastActiveTime = now;
 
     if (timerData.elapsedTime >= timerData.timeLimit) {
-      // Check if extra time can be offered
-      if (!timerData.extraTimeUsed && !extraTimePromptPending.has(domain)) {
-        // Pause the timer and send prompt
-        timerData.isPaused = true;
-        await saveTimersToStorage();
-
-        // Send extra time prompt to popup
-        try {
-          chrome.runtime.sendMessage({
-            action: 'showExtraTimePrompt',
-            domain: domain,
-            extraTimeMinutes: Math.round(timerData.extraTime / 60000)
-          });
-        } catch (e) { /* popup may not be open */ }
-
-        // Set a timeout: if no response in 15 seconds, deny automatically
-        const timeout = setTimeout(async () => {
-          extraTimePromptPending.delete(domain);
-          await handleTimeExpired(domain, timerData);
-        }, 15000);
-
-        extraTimePromptPending.set(domain, { timeout, siteConfig: timerData });
+      if (!timerData.extraTimeUsed && timerData.extraTime > 0) {
+        await startGraceWindow(domain, timerData);
         return;
       }
 
@@ -725,6 +1025,17 @@ async function checkTimer(domain) {
     console.error('Error checking timer:', error);
     cleanupTimer(domain);
   }
+}
+
+async function startGraceWindow(domain, timerData) {
+  timerData.graceActive = false;
+  timerData.gracePromptActive = true;
+  timerData.isPaused = true;
+  await saveTimersToStorage();
+  await showGraceWindowForDomain(domain, timerData);
+
+  const timeoutId = setTimeout(() => checkTimer(domain), 2000);
+  timerIntervals.set(domain, timeoutId);
 }
 
 function clearTimerInterval(domain) {
@@ -818,7 +1129,8 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
                 totalTime: timerData.timeLimit,
                 minutesRemaining: Math.floor(timeRemaining / 60000),
                 secondsRemaining: Math.floor((timeRemaining % 60000) / 1000),
-                isPaused: timerData.isPaused
+                isPaused: timerData.isPaused,
+                graceActive: timerData.graceActive || false
               }
             });
           } else {
@@ -843,7 +1155,8 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
         domain: timerData.domain,
         timeRemaining,
         totalTime: timerData.timeLimit,
-        isPaused: timerData.isPaused
+        isPaused: timerData.isPaused,
+        graceActive: timerData.graceActive || false
       };
     }
     sendResponse({ timers });
@@ -865,54 +1178,36 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
     return true;
   }
 
-  // NEW: Grant extra time
-  if (message.action === 'grantExtraTime') {
+  // Start cooldown immediately from the in-page grace prompt (close or lock button).
+  // Grace is NOT marked as used — the user declined to use it.
+  if (message.action === 'denyExtraTime') {
     const domain = message.domain;
-    const pending = extraTimePromptPending.get(domain);
-    if (pending) {
-      clearTimeout(pending.timeout);
-      extraTimePromptPending.delete(domain);
-    }
-
     const timerData = activeTimers.get(domain);
     if (timerData) {
-      timerData.timeLimit += timerData.extraTime;
-      timerData.extraTimeUsed = true;
-      timerData.isPaused = false;
-      timerData.lastActiveTime = Date.now();
-
-      // Persist extraTimeUsed in storage
-      chrome.storage.local.get('timeLimitedSites', (data) => {
-        const sites = data.timeLimitedSites || [];
-        const cleanDomain = domain.replace(/^www\./, '');
-        for (const site of sites) {
-          if (site.domain.replace(/^www\./, '') === cleanDomain) {
-            site.extraTimeUsed = true;
-          }
-        }
-        chrome.storage.local.set({ timeLimitedSites: sites });
-      });
-
-      saveTimersToStorage();
-      checkTimer(domain);
+      timerData.gracePromptActive = false;
+      handleTimeExpired(domain, timerData);
     }
     sendResponse({ success: true });
     return true;
   }
 
-  // NEW: Deny extra time
-  if (message.action === 'denyExtraTime') {
+  // User pressed "Continue for now" — start the actual grace countdown.
+  if (message.action === 'acceptExtraTime') {
     const domain = message.domain;
-    const pending = extraTimePromptPending.get(domain);
-    if (pending) {
-      clearTimeout(pending.timeout);
-      extraTimePromptPending.delete(domain);
-    }
-
     const timerData = activeTimers.get(domain);
     if (timerData) {
+      timerData.gracePromptActive = false;
+      timerData.graceActive = true;
+      timerData.graceStartedAt = Date.now();
       timerData.extraTimeUsed = true;
-      handleTimeExpired(domain, timerData);
+      timerData.isPaused = false;
+      timerData.timeLimit = timerData.elapsedTime + timerData.extraTime;
+      timerData.lastActiveTime = Date.now();
+      (async () => {
+        await saveTimersToStorage();
+        await setExtraTimeUsed(domain, true);
+        checkTimer(domain);
+      })();
     }
     sendResponse({ success: true });
     return true;
@@ -944,6 +1239,13 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
       .catch(error => sendResponse({ success: false, error: error.message }));
     return true;
   }
+
+  if (message.action === 'getNotificationPermission') {
+    getNotificationPermissionLevel()
+      .then(permissionLevel => sendResponse({ success: true, permissionLevel }))
+      .catch(error => sendResponse({ success: false, error: error.message }));
+    return true;
+  }
 });
 
 // ========== BADGE INIT ==========
@@ -967,9 +1269,8 @@ async function restoreScheduledTasks() {
       for (const task of scheduledTasks) {
         const scheduledDate = new Date(task.scheduledTime);
         if (scheduledDate < now) {
-          // Handle recurring tasks that are past due
-          if (task.recurrence && task.recurrence !== 'none') {
-            const nextTime = calculateNextOccurrence(task.scheduledTime, task.recurrence);
+          if (isRecurringTask(task)) {
+            const nextTime = calculateNextOccurrence(task);
             const newTask = { ...task, scheduledTime: nextTime };
             await scheduleTaskAlarm(newTask);
             activeTasks.push(newTask);
@@ -990,13 +1291,19 @@ async function restoreScheduledTasks() {
 }
 
 async function scheduleTaskAlarm(task) {
-  try {
-    const scheduledDate = new Date(task.scheduledTime);
-    if (scheduledDate > new Date()) {
-      await chrome.alarms.create(`task_${task.id}`, { when: scheduledDate.getTime() });
-    }
-  } catch (error) {
-    console.error('Error scheduling task alarm:', error);
+  const scheduledDate = new Date(task.scheduledTime);
+  if (Number.isNaN(scheduledDate.getTime())) {
+    throw new Error('Invalid reminder time');
+  }
+
+  if (scheduledDate <= new Date()) {
+    throw new Error('Reminder time is in the past');
+  }
+
+  await chrome.alarms.create(`task_${task.id}`, { when: scheduledDate.getTime() });
+  const alarm = await chrome.alarms.get(`task_${task.id}`);
+  if (!alarm) {
+    throw new Error('Chrome did not create the reminder alarm');
   }
 }
 
@@ -1026,17 +1333,12 @@ async function executeScheduledTask(taskId) {
     const task = scheduledTasks[taskIndex];
 
     // Show notification (priority drives urgency: high=2, medium=1, low=0)
-    if (task.showNotification) {
-      const priorityMap = { high: 2, medium: 1, low: 0 };
-      const notifPriority = priorityMap[task.priority] ?? 1;
-      await chrome.notifications.create(`task_${taskId}`, {
-        type: 'basic',
-        iconUrl: 'icons/icon128.png',
-        title: `ReclaimFocus: ${task.name}`,
-        message: task.url ? `Opening: ${task.url}` : task.name,
-        priority: notifPriority,
-        requireInteraction: task.priority === 'high'
-      });
+    if (task.showNotification !== false) {
+      try {
+        await createTaskNotification(taskId, task);
+      } catch (notificationError) {
+        console.error('Error showing task notification:', notificationError);
+      }
     }
 
     // Open URL if provided
@@ -1044,40 +1346,156 @@ async function executeScheduledTask(taskId) {
       await chrome.tabs.create({ url: task.url, active: true });
     }
 
-    // Handle recurrence
-    if (task.recurrence && task.recurrence !== 'none') {
-      const nextTime = calculateNextOccurrence(task.scheduledTime, task.recurrence);
-      const newTask = { ...task, id: Date.now(), scheduledTime: nextTime };
-      scheduledTasks.push(newTask);
+    if (isRecurringTask(task)) {
+      const nextTime = calculateNextOccurrence(task);
+      const newTask = { ...task, scheduledTime: nextTime };
+      scheduledTasks[taskIndex] = newTask;
       await scheduleTaskAlarm(newTask);
+    } else {
+      scheduledTasks.splice(taskIndex, 1);
     }
 
-    // Remove the executed task
-    scheduledTasks.splice(taskIndex, 1);
     await chrome.storage.local.set({ scheduledTasks });
   } catch (error) {
     console.error('Error executing scheduled task:', error);
   }
 }
 
-function calculateNextOccurrence(currentTime, recurrence) {
-  const date = new Date(currentTime);
+async function createTaskNotification(taskId, task) {
+  const priorityMap = { high: 2, medium: 1, low: 0 };
+  const notifPriority = priorityMap[task.priority] ?? 1;
+  const notificationId = `task_${taskId}_${Date.now()}`;
+  const title = task.name ? `ReclaimFocus: ${task.name}` : 'ReclaimFocus reminder';
+  const message = task.url ? `Opening ${task.url}` : 'Reminder time reached.';
+  const permissionLevel = await getNotificationPermissionLevel();
 
-  switch (recurrence) {
-    case 'daily':
-      date.setDate(date.getDate() + 1);
-      break;
-    case 'weekdays':
-      do {
-        date.setDate(date.getDate() + 1);
-      } while (date.getDay() === 0 || date.getDay() === 6); // Skip weekends
-      break;
-    case 'weekly':
-      date.setDate(date.getDate() + 7);
-      break;
-    default:
-      date.setDate(date.getDate() + 1);
+  if (permissionLevel !== 'granted') {
+    const errorMessage = `Notification permission is ${permissionLevel}`;
+    await chrome.storage.local.set({
+      lastNotificationError: {
+        taskId,
+        taskName: task.name || 'Scheduled Reminder',
+        message: errorMessage,
+        permissionLevel,
+        at: new Date().toISOString()
+      }
+    });
+    throw new Error(errorMessage);
   }
 
+  try {
+    const createdId = await createChromeNotification(notificationId, {
+      type: 'basic',
+      iconUrl: chrome.runtime.getURL('icons/icon128.png'),
+      title,
+      message,
+      priority: notifPriority,
+      requireInteraction: task.priority === 'high',
+      silent: false
+    });
+    await chrome.storage.local.set({
+      lastTaskNotification: {
+        taskId,
+        notificationId: createdId || notificationId,
+        taskName: task.name || 'Scheduled Reminder',
+        permissionLevel,
+        at: new Date().toISOString()
+      }
+    });
+    return createdId || notificationId;
+  } catch (error) {
+    await chrome.storage.local.set({
+      lastNotificationError: {
+        taskId,
+        taskName: task.name || 'Scheduled Reminder',
+        message: error.message || 'Chrome could not create the notification',
+        permissionLevel,
+        at: new Date().toISOString()
+      }
+    });
+    throw error;
+  }
+}
+
+function getNotificationPermissionLevel() {
+  return new Promise((resolve, reject) => {
+    chrome.notifications.getPermissionLevel((permissionLevel) => {
+      const error = chrome.runtime.lastError;
+      if (error) reject(new Error(error.message));
+      else resolve(permissionLevel);
+    });
+  });
+}
+
+function createChromeNotification(notificationId, options) {
+  return new Promise((resolve, reject) => {
+    chrome.notifications.create(notificationId, options, (createdId) => {
+      const error = chrome.runtime.lastError;
+      if (error) reject(new Error(error.message));
+      else resolve(createdId);
+    });
+  });
+}
+
+chrome.notifications.onClicked.addListener(async (notificationId) => {
+  if (!notificationId.startsWith('task_')) return;
+  await chrome.notifications.clear(notificationId);
+});
+
+chrome.notifications.onButtonClicked.addListener(async (notificationId) => {
+  if (!notificationId.startsWith('task_')) return;
+  await chrome.notifications.clear(notificationId);
+});
+
+function isRecurringTask(task) {
+  const recurrence = task.recurrence || 'none';
+  return getTaskRepeatDays(task).length > 0 || ['daily', 'weekdays', 'weekly'].includes(recurrence);
+}
+
+function getTaskRepeatDays(task) {
+  if (Array.isArray(task.repeatDays) && task.repeatDays.length > 0) {
+    return [...new Set(task.repeatDays.map(Number))]
+      .filter(day => Number.isInteger(day) && day >= 0 && day <= 6)
+      .sort((a, b) => a - b);
+  }
+
+  const recurrence = task.recurrence || 'none';
+  if (recurrence === 'daily') return [0, 1, 2, 3, 4, 5, 6];
+  if (recurrence === 'weekdays') return [1, 2, 3, 4, 5];
+  if (recurrence === 'weekly') return [new Date(task.scheduledTime).getDay()];
+  return [];
+}
+
+function getTaskTimeOfDay(task) {
+  if (task.timeOfDay) return task.timeOfDay;
+  const date = new Date(task.scheduledTime);
+  return `${String(date.getHours()).padStart(2, '0')}:${String(date.getMinutes()).padStart(2, '0')}`;
+}
+
+function calculateNextOccurrence(task) {
+  const repeatDays = getTaskRepeatDays(task);
+  if (repeatDays.length > 0) {
+    return calculateNextRunForDays(getTaskTimeOfDay(task), repeatDays, new Date()).toISOString();
+  }
+
+  const date = new Date(task.scheduledTime);
+  date.setDate(date.getDate() + 1);
   return date.toISOString();
+}
+
+function calculateNextRunForDays(timeOfDay, repeatDays, from = new Date()) {
+  const [hours, minutes] = timeOfDay.split(':').map(Number);
+  for (let offset = 0; offset <= 7; offset++) {
+    const candidate = new Date(from);
+    candidate.setDate(from.getDate() + offset);
+    candidate.setHours(hours, minutes, 0, 0);
+    if (repeatDays.includes(candidate.getDay()) && candidate > from) {
+      return candidate;
+    }
+  }
+
+  const fallback = new Date(from);
+  fallback.setDate(from.getDate() + 1);
+  fallback.setHours(hours, minutes, 0, 0);
+  return fallback;
 }
