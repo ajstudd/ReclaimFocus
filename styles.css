@@ -703,7 +703,7 @@ input[type="time"]:focus {
 
 .blocked-actions {
   display: flex;
-  flex-direction: column;
+  flex-direction: row;
   gap: 6px;
   flex-shrink: 0;
   margin-left: 10px;
@@ -1537,7 +1537,7 @@ input[type="time"]:focus {
 
 .task-actions {
   display: flex;
-  flex-direction: column;
+  flex-direction: row;
   gap: 6px;
   flex-shrink: 0;
   margin-left: 0;
