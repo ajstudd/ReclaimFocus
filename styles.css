@@ -2266,24 +2266,26 @@ input[type="time"]:focus {
   animation: slideUp var(--transition-normal) ease;
   pointer-events: auto;
   box-shadow: 0 4px 12px rgba(0, 0, 0, 0.1);
+  backdrop-filter: blur(12px);
+  -webkit-backdrop-filter: blur(12px);
 }
 
 .status-message.success {
-  background: rgba(var(--success-rgb), 0.1);
+  background: rgba(var(--success-rgb), 0.15);
   color: var(--success);
-  border: 1px solid rgba(var(--success-rgb), 0.2);
+  border: 1px solid rgba(var(--success-rgb), 0.3);
 }
 
 .status-message.error {
-  background: rgba(var(--danger-rgb), 0.1);
+  background: rgba(var(--danger-rgb), 0.15);
   color: var(--danger);
-  border: 1px solid rgba(var(--danger-rgb), 0.2);
+  border: 1px solid rgba(var(--danger-rgb), 0.3);
 }
 
 .status-message.info {
-  background: rgba(var(--primary-rgb), 0.1);
+  background: rgba(var(--primary-rgb), 0.15);
   color: var(--primary);
-  border: 1px solid rgba(var(--primary-rgb), 0.2);
+  border: 1px solid rgba(var(--primary-rgb), 0.3);
 }
 
 /* ============================================
