@@ -162,8 +162,8 @@ chrome.tabs.onUpdated.addListener(async (tabId, changeInfo, tab) => {
   if (changeInfo.status === 'complete' && tab?.url) {
     // Deep keyword scan needs a loaded DOM
     await runDeepKeywordScan(tabId, tab.url);
-    // Show queued toast (if any)
-    if (pendingToasts.has(tabId)) {
+    // Show queued toast (if any) — only on http(s) pages, NOT on extension/about pages
+    if (pendingToasts.has(tabId) && /^https?:/i.test(tab.url)) {
       const info = pendingToasts.get(tabId);
       pendingToasts.delete(tabId);
       showRedirectToast(tabId, info);
@@ -198,6 +198,9 @@ chrome.tabs.onRemoved.addListener(async (tabId) => {
 // ========== MAIN CHECK & REDIRECT ==========
 async function checkAndRedirect(tabId, url) {
   try {
+    // Skip non-http URLs (extension pages, about:, chrome://, etc.)
+    if (!url || !/^https?:/i.test(url)) return;
+
     const { blockedSites, blockedKeywords, keywordSettings, timeLimitedSites, settings } = await chrome.storage.local.get([
       'blockedSites', 'blockedKeywords', 'keywordSettings', 'timeLimitedSites', 'settings'
     ]);
@@ -220,8 +223,7 @@ async function checkAndRedirect(tabId, url) {
 
         if (cooldownData && Date.now() < cooldownData.expiresAt) {
           const redirectUrl = timeLimitedSite.redirect || 'about:newtab';
-          queueRedirectToast(tabId, { type: 'cooldown', label: `${hostname} is in cooldown` });
-          chrome.tabs.update(tabId, { url: redirectUrl });
+          redirectViaInterstitial(tabId, redirectUrl, { type: 'cooldown', label: `${hostname} is in cooldown`, from: url });
           return;
         }
 
@@ -242,8 +244,7 @@ async function checkAndRedirect(tabId, url) {
         await logKeywordAttempt(url, keywordMatch.keyword);
         const redirectUrl = keywordMatch.redirect;
         if (!url.startsWith(redirectUrl)) {
-          queueRedirectToast(tabId, { type: 'keyword', label: `Keyword "${keywordMatch.keyword}" detected` });
-          chrome.tabs.update(tabId, { url: redirectUrl });
+          redirectViaInterstitial(tabId, redirectUrl, { type: 'keyword', label: `Keyword "${keywordMatch.keyword}" detected`, from: url });
         }
         return;
       }
@@ -266,8 +267,7 @@ async function checkAndRedirect(tabId, url) {
       await logAttempt(url);
       const redirectUrl = blockedSite.redirect || 'https://www.khanacademy.org';
       if (!url.startsWith(redirectUrl)) {
-        queueRedirectToast(tabId, { type: 'blocked', label: `${blockedSite.domain} is on your blocked list` });
-        chrome.tabs.update(tabId, { url: redirectUrl });
+        redirectViaInterstitial(tabId, redirectUrl, { type: 'blocked', label: `${blockedSite.domain} is on your blocked list`, from: url });
       }
     }
   } catch (error) {
@@ -275,10 +275,59 @@ async function checkAndRedirect(tabId, url) {
   }
 }
 
-// ========== REDIRECT TOAST (subtle in-page notification) ==========
+// ========== REDIRECT INTERSTITIAL + TOAST + NOTIFICATION ==========
+
 // Queue a toast to be shown after the destination page loads.
 function queueRedirectToast(tabId, info) {
   pendingToasts.set(tabId, info);
+  // Auto-cleanup in case the toast is never consumed (e.g. about:newtab destination)
+  setTimeout(() => pendingToasts.delete(tabId), 30000);
+}
+
+// Primary redirect mechanism: routes through the interstitial page.
+function redirectViaInterstitial(tabId, targetUrl, info) {
+  const params = new URLSearchParams({
+    reason: info.type || 'blocked',
+    label:  info.label || 'You were redirected',
+    target: targetUrl || 'about:newtab',
+    from:   info.from || ''
+  });
+  const interstitialUrl = chrome.runtime.getURL('redirect.html') + '?' + params.toString();
+  chrome.tabs.update(tabId, { url: interstitialUrl });
+
+  // Queue toast for the FINAL destination page (persists through interstitial)
+  queueRedirectToast(tabId, info);
+
+  // Fire system notification as secondary alert
+  fireRedirectNotification(info);
+}
+
+// Chrome notification API — system-level alert (works even on about:newtab).
+function fireRedirectNotification(info) {
+  try {
+    const titles = {
+      blocked:   '🛡️ Site Blocked',
+      keyword:   '🔍 Keyword Detected',
+      cooldown:  '⏳ Site in Cooldown',
+      timelimit: '⏰ Time Limit Reached'
+    };
+    const notifId = 'rf-redirect-' + Date.now();
+    chrome.notifications.create(notifId, {
+      type: 'basic',
+      iconUrl: 'icons/icon128.png',
+      title: titles[info.type] || 'Reclaim Focus',
+      message: info.label || 'You were redirected by Reclaim Focus',
+      priority: 1
+    }, () => {
+      // Auto-clear after 6 seconds
+      setTimeout(() => {
+        try { chrome.notifications.clear(notifId); } catch (_) {}
+      }, 6000);
+    });
+  } catch (e) {
+    // Notifications may be blocked by OS or unavailable
+    console.error('Notification error:', e);
+  }
 }
 
 // Render the toast inside the target page via injected script (Shadow DOM isolated).
@@ -300,7 +349,9 @@ async function showRedirectToast(tabId, info) {
 
 // This function runs in the page context. Keep it self-contained.
 function injectToastFunc(info) {
-  if (document.getElementById('__rf_toast_host__')) return;
+  // Remove any existing toast before showing a new one
+  const existing = document.getElementById('__rf_toast_host__');
+  if (existing) existing.remove();
 
   const host = document.createElement('div');
   host.id = '__rf_toast_host__';
@@ -310,13 +361,13 @@ function injectToastFunc(info) {
   const accent = info.type === 'blocked' ? '#e05248'
     : info.type === 'timelimit' ? '#5848B9'
     : info.type === 'cooldown' ? '#e05248'
-    : info.type === 'keyword' ? '#f3b01e'
+    : info.type === 'keyword' ? '#d4a017'
     : '#5848B9';
 
   const icon = info.type === 'timelimit' || info.type === 'cooldown'
     ? '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>'
     : info.type === 'keyword'
-    ? '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 2l-2 2m-7.61 7.61a5.5 5.5 0 1 1-7.78 7.78 5.5 5.5 0 0 1 7.78-7.78zm0 0L15.5 7.5m0 0l3 3L22 7l-3-3m-3.5 3.5L19 4"/></svg>'
+    ? '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>'
     : '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/></svg>';
 
   shadow.innerHTML = `
@@ -328,44 +379,64 @@ function injectToastFunc(info) {
         display: flex;
         align-items: center;
         gap: 10px;
-        padding: 10px 14px;
+        padding: 12px 16px;
         background: #1c1d24;
         color: #fff;
-        border-radius: 12px;
-        border: 1px solid rgba(255, 255, 255, 0.2);
-        box-shadow: 0 16px 40px rgba(0, 0, 0, 0.5);
+        border-radius: 14px;
+        border: 1px solid rgba(255, 255, 255, 0.1);
+        border-left: 3px solid ${accent};
+        box-shadow: 0 16px 48px rgba(0, 0, 0, 0.55), 0 0 0 1px rgba(255,255,255,0.04) inset;
         font-size: 12.5px;
         line-height: 1.35;
-        max-width: 320px;
+        max-width: 360px;
         opacity: 0;
-        transform: translateY(8px);
-        animation: rfin 260ms cubic-bezier(0.16, 1, 0.3, 1) forwards;
+        transform: translateY(10px) scale(0.97);
+        animation: rfin 320ms cubic-bezier(0.16, 1, 0.3, 1) forwards;
         pointer-events: auto;
+        backdrop-filter: blur(12px);
+        -webkit-backdrop-filter: blur(12px);
       }
       .t.out {
-        animation: rfout 220ms ease forwards;
+        animation: rfout 250ms ease forwards;
       }
       .ico {
-        width: 26px;
-        height: 26px;
-        border-radius: 8px;
+        width: 30px;
+        height: 30px;
+        border-radius: 9px;
         background: ${accent};
         display: flex;
         align-items: center;
         justify-content: center;
         flex-shrink: 0;
+        box-shadow: 0 2px 8px rgba(0,0,0,0.2);
       }
-      .ico svg { width: 14px; height: 14px; color: #fff; }
-      .body { display: flex; flex-direction: column; gap: 1px; min-width: 0; }
+      .ico svg { width: 15px; height: 15px; color: #fff; }
+      .body { display: flex; flex-direction: column; gap: 2px; min-width: 0; flex: 1; }
       .title { font-weight: 600; font-size: 12px; letter-spacing: 0.1px; }
-      .msg { color: rgba(255,255,255,0.72); font-size: 11px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 260px; }
+      .msg { color: rgba(255,255,255,0.65); font-size: 11.5px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 260px; }
+      .close {
+        all: initial;
+        cursor: pointer;
+        color: rgba(255,255,255,0.35);
+        font-size: 16px;
+        line-height: 1;
+        padding: 4px;
+        border-radius: 6px;
+        transition: all 150ms;
+        pointer-events: auto;
+        flex-shrink: 0;
+      }
+      .close:hover {
+        color: rgba(255,255,255,0.8);
+        background: rgba(255,255,255,0.08);
+      }
       @keyframes rfin {
-        from { opacity: 0; transform: translateY(8px); }
-        to   { opacity: 1; transform: translateY(0); }
+        from { opacity: 0; transform: translateY(10px) scale(0.97); }
+        to   { opacity: 1; transform: translateY(0) scale(1); }
       }
       @keyframes rfout {
-        from { opacity: 1; transform: translateY(0); }
-        to   { opacity: 0; transform: translateY(8px); }
+        from { opacity: 1; transform: translateY(0) scale(1); }
+        to   { opacity: 0; transform: translateY(10px) scale(0.97); }
       }
     </style>
     <div class="t" id="t">
@@ -374,17 +445,23 @@ function injectToastFunc(info) {
         <div class="title">Reclaim Focus</div>
         <div class="msg" id="msg"></div>
       </div>
+      <button class="close" id="closeBtn" title="Dismiss">✕</button>
     </div>
   `;
 
   shadow.getElementById('msg').textContent = info.label || 'Redirected';
   document.documentElement.appendChild(host);
 
-  setTimeout(() => {
+  function dismiss() {
     const t = shadow.getElementById('t');
     if (t) t.classList.add('out');
-    setTimeout(() => host.remove(), 240);
-  }, 3200);
+    setTimeout(() => host.remove(), 260);
+  }
+
+  shadow.getElementById('closeBtn').addEventListener('click', dismiss);
+
+  // Auto-dismiss after 5 seconds
+  setTimeout(dismiss, 5000);
 }
 
 async function showGraceWindowForDomain(domain, timerData) {
@@ -708,8 +785,7 @@ async function runDeepKeywordScan(tabId, url) {
         );
         const redirect = kObj?.redirect || keywordSettings?.globalRedirect || 'about:newtab';
         logKeywordAttempt(url, response.keyword);
-        queueRedirectToast(tabId, { type: 'keyword', label: `Keyword "${response.keyword}" found on page` });
-        chrome.tabs.update(tabId, { url: redirect });
+        redirectViaInterstitial(tabId, redirect, { type: 'keyword', label: `Keyword "${response.keyword}" found on page`, from: url });
       }
     });
   } catch (error) {
@@ -891,8 +967,7 @@ async function handleTabActivation(tabId) {
 
       if (cooldownData && Date.now() < cooldownData.expiresAt) {
         const redirectUrl = timeLimitedSite.redirect || 'about:newtab';
-        queueRedirectToast(tabId, { type: 'cooldown', label: `${hostname} is in cooldown` });
-        chrome.tabs.update(tabId, { url: redirectUrl });
+        redirectViaInterstitial(tabId, redirectUrl, { type: 'cooldown', label: `${hostname} is in cooldown`, from: tab.url });
         return;
       }
 
@@ -1082,8 +1157,7 @@ async function handleTimeExpired(domain, timerData) {
     const tabs = activeTabs.get(domain) || new Set();
     for (const tabId of tabs) {
       try {
-        queueRedirectToast(tabId, { type: 'timelimit', label: `Time's up on ${domain}` });
-        await chrome.tabs.update(tabId, { url: timerData.redirect });
+        redirectViaInterstitial(tabId, timerData.redirect, { type: 'timelimit', label: `Time's up on ${domain}`, from: `https://${domain}` });
       } catch (error) {
         console.error(`Error redirecting tab ${tabId}:`, error);
       }
@@ -1133,6 +1207,16 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
     // Re-run deep keyword scan on the sender tab (triggered by MutationObserver)
     if (sender.tab?.id && sender.tab?.url) {
       runDeepKeywordScan(sender.tab.id, sender.tab.url);
+    }
+    sendResponse({ success: true });
+    return true;
+  }
+
+  // Interstitial page requests the final redirect
+  if (message.action === 'completeRedirect') {
+    const tabId = sender.tab?.id;
+    if (tabId && message.target) {
+      chrome.tabs.update(tabId, { url: message.target });
     }
     sendResponse({ success: true });
     return true;

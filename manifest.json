@@ -37,7 +37,7 @@
   },
   "web_accessible_resources": [
     {
-      "resources": ["zenmode.html", "zenmode.js"],
+      "resources": ["zenmode.html", "zenmode.js", "redirect.html", "redirect.js"],
       "matches": ["<all_urls>"]
     }
   ]
