@@ -37,7 +37,12 @@ chrome.runtime.onInstalled.addListener(async () => {
   if (!Array.isArray(data.redirectSites)) seed.redirectSites = [];
   if (!data.keywordSettings) seed.keywordSettings = { globalRedirect: 'about:newtab' };
   if (!Array.isArray(data.logs)) seed.logs = [];
-  if (!data.settings) seed.settings = { enabled: true, darkMode: false, deepKeywordScan: false };
+  if (!data.settings) seed.settings = { enabled: true, darkMode: false, deepKeywordScan: true };
+  // Migration: enable deepKeywordScan for existing users who had the old default (false)
+  if (data.settings && data.settings.deepKeywordScan === undefined) {
+    data.settings.deepKeywordScan = true;
+    seed.settings = data.settings;
+  }
   if (Object.keys(seed).length > 0) {
     await chrome.storage.local.set(seed);
   }
@@ -778,17 +783,29 @@ function checkKeywordInUrl(url, blockedKeywords, keywordSettings) {
       }
     }
 
-    if (!searchQuery) return null;
+    // Build list of text surfaces to check: search query, full URL, pathname
+    const surfaces = [];
+    if (searchQuery) surfaces.push(searchQuery);
+    // Always check the full decoded URL (path, query, hash) as a fallback
+    try {
+      surfaces.push(decodeURIComponent(urlObj.pathname + urlObj.search + urlObj.hash).toLowerCase());
+    } catch (e) {
+      surfaces.push((urlObj.pathname + urlObj.search + urlObj.hash).toLowerCase());
+    }
+
+    if (surfaces.length === 0) return null;
 
     for (const keywordObj of blockedKeywords) {
       const keyword = keywordObj.keyword.toLowerCase();
-      // Unicode-safe word boundary matching
       const escapedKeyword = keyword.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-      const regex = new RegExp("(?:^|[\\s,;.!?\"'()\\[\\]{}])" + escapedKeyword + "(?:$|[\\s,;.!?\"'()\\[\\]{}])", 'i');
+      // Use proper \b word boundaries with fallback to includes()
+      const wordBoundaryRegex = new RegExp('\\b' + escapedKeyword + '\\b', 'i');
 
-      if (regex.test(searchQuery) || searchQuery.includes(keyword)) {
-        const redirect = keywordObj.redirect || keywordSettings?.globalRedirect || 'about:newtab';
-        return { keyword: keywordObj.keyword, redirect };
+      for (const text of surfaces) {
+        if (wordBoundaryRegex.test(text) || text.includes(keyword)) {
+          const redirect = keywordObj.redirect || keywordSettings?.globalRedirect || 'about:newtab';
+          return { keyword: keywordObj.keyword, redirect };
+        }
       }
     }
 
@@ -1108,6 +1125,15 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
 
   if (message.action === 'clearBadge') {
     chrome.action.setBadgeText({ text: '' });
+    sendResponse({ success: true });
+    return true;
+  }
+
+  if (message.action === 'rerunDeepScan') {
+    // Re-run deep keyword scan on the sender tab (triggered by MutationObserver)
+    if (sender.tab?.id && sender.tab?.url) {
+      runDeepKeywordScan(sender.tab.id, sender.tab.url);
+    }
     sendResponse({ success: true });
     return true;
   }

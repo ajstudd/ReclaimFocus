@@ -29,7 +29,7 @@ let currentSettings = {
   redirectSites: [],
   keywordSettings: { globalRedirect: 'about:newtab' },
   logs: [],
-  settings: { enabled: true, darkMode: false, deepKeywordScan: false },
+  settings: { enabled: true, darkMode: false, deepKeywordScan: true },
   scheduledTasks: []
 };
 
@@ -95,7 +95,7 @@ async function loadSettings() {
       redirectSites,
       scheduledTasks: data.scheduledTasks || [],
       logs: data.logs || [],
-      settings: data.settings || { enabled: true, darkMode: false, deepKeywordScan: false }
+      settings: data.settings || { enabled: true, darkMode: false, deepKeywordScan: true }
     };
 
     document.getElementById('enableToggle').checked = currentSettings.settings.enabled;
@@ -2053,7 +2053,7 @@ async function resetToDefaults() {
   currentSettings.timeLimitedSites = [];
   currentSettings.redirectSites = [];
   currentSettings.scheduledTasks = [];
-  currentSettings.settings = { enabled: true, darkMode: false, deepKeywordScan: false };
+  currentSettings.settings = { enabled: true, darkMode: false, deepKeywordScan: true };
 
   await chrome.storage.local.set({
     blockedSites: [], blockedKeywords: [], keywordSettings: { globalRedirect: 'about:newtab' },
