@@ -1,5 +1,5 @@
 // ============================================
-// ReclaimFocus v2.0 - Background Service Worker
+// Reclaim Focus v2.0 - Background Service Worker
 // ============================================
 
 const DEFAULT_BLOCKED_SITES = [];
@@ -21,7 +21,7 @@ chrome.runtime.onStartup.addListener(async () => {
 });
 
 chrome.runtime.onInstalled.addListener(async () => {
-  console.log('ReclaimFocus v2.0 installed');
+  console.log('Reclaim Focus v2.0 installed');
   await restoreTimersFromStorage();
   await restoreScheduledTasks();
 
@@ -324,12 +324,11 @@ function injectToastFunc(info) {
         align-items: center;
         gap: 10px;
         padding: 10px 14px;
-        background: rgba(20, 22, 32, 0.92);
+        background: #1c1d24;
         color: #fff;
         border-radius: 12px;
-        box-shadow: 0 8px 24px rgba(0, 0, 0, 0.22);
-        backdrop-filter: blur(8px);
-        -webkit-backdrop-filter: blur(8px);
+        border: 1px solid rgba(255, 255, 255, 0.2);
+        box-shadow: 0 16px 40px rgba(0, 0, 0, 0.5);
         font-size: 12.5px;
         line-height: 1.35;
         max-width: 320px;
@@ -367,7 +366,7 @@ function injectToastFunc(info) {
     <div class="t" id="t">
       <div class="ico">${icon}</div>
       <div class="body">
-        <div class="title">ReclaimFocus</div>
+        <div class="title">Reclaim Focus</div>
         <div class="msg" id="msg"></div>
       </div>
     </div>
@@ -1338,6 +1337,9 @@ async function executeScheduledTask(taskId) {
         await createTaskNotification(taskId, task);
       } catch (notificationError) {
         console.error('Error showing task notification:', notificationError);
+        // createTaskNotification already tries showFallbackNotification internally,
+        // but if it threw before reaching that point, try the fallback here too.
+        try { await showFallbackNotification(task); } catch (_) { /* ignore */ }
       }
     }
 
@@ -1365,12 +1367,18 @@ async function createTaskNotification(taskId, task) {
   const priorityMap = { high: 2, medium: 1, low: 0 };
   const notifPriority = priorityMap[task.priority] ?? 1;
   const notificationId = `task_${taskId}_${Date.now()}`;
-  const title = task.name ? `ReclaimFocus: ${task.name}` : 'ReclaimFocus reminder';
+  const title = task.name ? `Reclaim Focus: ${task.name}` : 'Reclaim Focus reminder';
   const message = task.url ? `Opening ${task.url}` : 'Reminder time reached.';
-  const permissionLevel = await getNotificationPermissionLevel();
+
+  let permissionLevel = 'unknown';
+  try {
+    permissionLevel = await getNotificationPermissionLevel();
+  } catch (permError) {
+    console.warn('Could not check notification permission:', permError);
+  }
 
   if (permissionLevel !== 'granted') {
-    const errorMessage = `Notification permission is ${permissionLevel}`;
+    const errorMessage = `Notification permission is "${permissionLevel}". Enable notifications for Chrome in your system settings.`;
     await chrome.storage.local.set({
       lastNotificationError: {
         taskId,
@@ -1380,7 +1388,8 @@ async function createTaskNotification(taskId, task) {
         at: new Date().toISOString()
       }
     });
-    throw new Error(errorMessage);
+    // Still try to show the notification anyway — some platforms grant at the OS level
+    // even when the API reports 'denied'. The worst that can happen is a silent failure.
   }
 
   try {
@@ -1413,6 +1422,8 @@ async function createTaskNotification(taskId, task) {
         at: new Date().toISOString()
       }
     });
+    // Fallback: show notification as an in-page toast in the active tab
+    await showFallbackNotification(task);
     throw error;
   }
 }
@@ -1435,6 +1446,110 @@ function createChromeNotification(notificationId, options) {
       else resolve(createdId);
     });
   });
+}
+
+// Fallback: inject a persistent toast into the active tab when Chrome notifications fail.
+async function showFallbackNotification(task) {
+  try {
+    const tabs = await chrome.tabs.query({ active: true, currentWindow: true });
+    if (!tabs[0] || !tabs[0].url || !/^https?:/i.test(tabs[0].url)) return;
+
+    await chrome.scripting.executeScript({
+      target: { tabId: tabs[0].id },
+      func: (taskInfo) => {
+        if (document.getElementById('__rf_notif_host__')) return;
+
+        const host = document.createElement('div');
+        host.id = '__rf_notif_host__';
+        host.style.cssText = 'all:initial;position:fixed;top:20px;right:20px;z-index:2147483647;pointer-events:none;';
+        const shadow = host.attachShadow({ mode: 'closed' });
+
+        shadow.innerHTML = `
+          <style>
+            :host { all: initial; }
+            .n {
+              all: initial;
+              font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+              display: flex;
+              align-items: flex-start;
+              gap: 12px;
+              padding: 14px 18px;
+              background: #1c1d24;
+              color: #fff;
+              border-radius: 14px;
+              box-shadow: 0 16px 40px rgba(0, 0, 0, 0.5);
+              font-size: 13px;
+              line-height: 1.4;
+              max-width: 360px;
+              opacity: 0;
+              transform: translateY(-12px);
+              animation: rfnIn 320ms cubic-bezier(0.16, 1, 0.3, 1) forwards;
+              pointer-events: auto;
+              cursor: pointer;
+              border: 1px solid rgba(255, 255, 255, 0.12);
+            }
+            .n.out {
+              animation: rfnOut 280ms ease forwards;
+            }
+            .ico {
+              width: 32px;
+              height: 32px;
+              border-radius: 10px;
+              background: #5848B9;
+              display: flex;
+              align-items: center;
+              justify-content: center;
+              flex-shrink: 0;
+            }
+            .ico svg { width: 16px; height: 16px; color: #fff; }
+            .body { display: flex; flex-direction: column; gap: 3px; min-width: 0; }
+            .title { font-weight: 700; font-size: 13px; letter-spacing: 0.1px; }
+            .msg { color: rgba(255,255,255,0.72); font-size: 12px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 280px; }
+            .sub { color: rgba(255,255,255,0.45); font-size: 10px; margin-top: 2px; }
+            @keyframes rfnIn {
+              from { opacity: 0; transform: translateY(-12px); }
+              to   { opacity: 1; transform: translateY(0); }
+            }
+            @keyframes rfnOut {
+              from { opacity: 1; transform: translateY(0); }
+              to   { opacity: 0; transform: translateY(-12px); }
+            }
+          </style>
+          <div class="n" id="n">
+            <div class="ico">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M18 8A6 6 0 0 0 6 8c0 7-3 9-3 9h18s-3-2-3-9"/><path d="M13.73 21a2 2 0 0 1-3.46 0"/></svg>
+            </div>
+            <div class="body">
+              <div class="title">${taskInfo.title}</div>
+              <div class="msg" id="msg"></div>
+              <div class="sub">Reclaim Focus Reminder</div>
+            </div>
+          </div>
+        `;
+
+        shadow.getElementById('msg').textContent = taskInfo.message;
+        shadow.getElementById('n').addEventListener('click', () => {
+          const el = shadow.getElementById('n');
+          if (el) el.classList.add('out');
+          setTimeout(() => host.remove(), 300);
+        });
+        document.documentElement.appendChild(host);
+
+        // Auto-dismiss after 8 seconds
+        setTimeout(() => {
+          const el = shadow.getElementById('n');
+          if (el) el.classList.add('out');
+          setTimeout(() => host.remove(), 300);
+        }, 8000);
+      },
+      args: [{
+        title: task.name || 'Reminder',
+        message: task.url ? `Opening ${task.url}` : 'Reminder time reached.'
+      }]
+    });
+  } catch (e) {
+    // Can't inject (tab closed, chrome:// page, etc.) — silently ignore.
+  }
 }
 
 chrome.notifications.onClicked.addListener(async (notificationId) => {

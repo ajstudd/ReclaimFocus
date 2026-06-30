@@ -1,5 +1,5 @@
 // ============================================
-// ReclaimFocus v2.0 - Popup Controller
+// Reclaim Focus v2.0 - Popup Controller
 // ============================================
 
 // ========== SVG ICON UTILITY ==========
@@ -2010,7 +2010,7 @@ async function clearLogs() {
 }
 
 function exportLogs() {
-  downloadJSON({ logs: currentSettings.logs, exportDate: new Date().toISOString() }, `ReclaimFocus-logs-${Date.now()}.json`);
+  downloadJSON({ logs: currentSettings.logs, exportDate: new Date().toISOString() }, `Reclaim-Focus-logs-${Date.now()}.json`);
   showStatus('Logs exported', 'success');
 }
 
@@ -2024,7 +2024,7 @@ function exportSettings() {
     scheduledTasks: currentSettings.scheduledTasks,
     settings: currentSettings.settings,
     exportDate: new Date().toISOString()
-  }, `ReclaimFocus-settings-${Date.now()}.json`);
+  }, `Reclaim-Focus-settings-${Date.now()}.json`);
   showStatus('Settings exported', 'success');
 }
 
