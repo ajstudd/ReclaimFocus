@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "Reclaim Focus",
-  "version": "1.6",
+  "version": "1.7",
   "description": "Block distracting sites, cap browsing time, filter keywords, schedule reminders, and reach focus. 100% local, no tracking.",
   "permissions": [
     "storage",

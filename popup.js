@@ -129,7 +129,7 @@ const DRAFT_INPUT_IDS = [
   'taskName', 'taskDate', 'taskTime', 'taskPriority', 'taskRepeatMode', 'taskRepeatDays',
   'redirectName', 'redirectUrl'
 ];
-const DRAFT_CHECKBOX_IDS = ['taskNotification'];
+const DRAFT_CHECKBOX_IDS = [];
 const DRAFT_PICKERS = ['site', 'keyword', 'global', 'timeLimit', 'task'];
 
 const FORM_DRAFT_MAP = {
@@ -138,7 +138,7 @@ const FORM_DRAFT_MAP = {
   global:     { inputs: [],                                                                  pickers: ['global']    },
   timeLimit:  { inputs: ['timeDomain', 'timeLimit', 'cooldownPeriod', 'extraTime'],          pickers: ['timeLimit'] },
   task:       { inputs: ['taskName', 'taskDate', 'taskTime', 'taskPriority', 'taskRepeatMode', 'taskRepeatDays'],
-                checkboxes: ['taskNotification'],                                            pickers: ['task']      },
+                pickers: ['task']      },
   redirect:   { inputs: ['redirectName', 'redirectUrl'],                                     pickers: []            },
 };
 
@@ -1792,8 +1792,8 @@ function getTaskScheduleForSave() {
 
 async function addTask() {
   const name = document.getElementById('taskName').value.trim();
-  const showNotification = document.getElementById('taskNotification').checked;
   const priority = document.getElementById('taskPriority').value;
+  const showNotification = priority !== 'none';
 
   if (!name) { showStatus('Task name is required', 'error'); return; }
 
@@ -1865,7 +1865,6 @@ function editTask(index) {
   const task = currentSettings.scheduledTasks[index];
   setRedirectInPicker('task', task.url || '');
   document.getElementById('taskName').value = task.name;
-  document.getElementById('taskNotification').checked = task.showNotification !== false;
   document.getElementById('taskPriority').value = task.priority || 'medium';
 
   const date = new Date(task.scheduledTime);
@@ -1889,8 +1888,6 @@ function resetTaskForm() {
   resetRedirectPicker('task');
   document.getElementById('taskDate').value = '';
   document.getElementById('taskTime').value = '';
-  document.getElementById('taskName').value = '';
-  document.getElementById('taskNotification').checked = true;
   document.getElementById('taskPriority').value = 'medium';
   document.getElementById('taskRepeatMode').value = 'once';
   setSelectedRepeatDays([]);

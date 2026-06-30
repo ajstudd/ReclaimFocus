@@ -1725,7 +1725,7 @@ input[type="time"]:focus {
 }
 
 .notification-field--inline {
-  min-height: 62px;
+  min-height: auto;
   display: flex;
   align-items: center;
   justify-content: space-between;
@@ -1747,7 +1747,7 @@ input[type="time"]:focus {
   color: var(--text-primary);
   font-size: 12px;
   font-weight: 650;
-  margin-bottom: 3px;
+  margin-bottom: 0;
 }
 
 .checkbox-control {
