@@ -591,7 +591,7 @@ async function openTabPicker(targetInputId, mode = 'domain') {
           }
           if (pickerMode === 'url' && targetInputId === 'redirectUrl') {
             const nameInput = document.getElementById('redirectName');
-            if (nameInput && !nameInput.value.trim()) {
+            if (nameInput) {
               nameInput.value = cleanTabTitle(item.dataset.title, item.dataset.domain);
               nameInput.dispatchEvent(new Event('input', { bubbles: true }));
             }
